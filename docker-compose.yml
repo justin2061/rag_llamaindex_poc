@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  rag-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: taiwan-tea-rag
+    ports:
+      - "8620:8501"
+    volumes:
+      - ./data:/app/data           # 掛載資料目錄 (持久化)
+      - ./.env:/app/.env           # 掛載環境變數檔案
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+  # 可選：如果未來要使用外部向量資料庫
+  # chromadb:
+  #   image: ghcr.io/chroma-core/chroma:latest
+  #   container_name: chroma-db
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - chroma_data:/chroma/chroma
+  #   environment:
+  #     - CHROMA_SERVER_HOST=0.0.0.0
+  #     - CHROMA_SERVER_HTTP_PORT=8000
+  #   networks:
+  #     - rag-network
+
+networks:
+  rag-network:
+    driver: bridge
+
+volumes:
+  chroma_data:
+    driver: local 

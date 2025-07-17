@@ -11,6 +11,8 @@ services:
     volumes:
       - ./data:/app/data           # 掛載資料目錄 (持久化)
       - ./.env:/app/.env           # 掛載環境變數檔案
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
     restart: unless-stopped

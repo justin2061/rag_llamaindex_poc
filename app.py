@@ -131,6 +131,100 @@ with st.sidebar:
 
 # 主要內容區域
 if st.session_state.system_ready and st.session_state.rag_system:
+    # 知識庫摘要區塊
+    st.header("📚 知識庫摘要")
+    
+    try:
+        summary = st.session_state.rag_system.get_knowledge_base_summary()
+        
+        if summary:
+            # 統計資訊
+            stats = summary.get("statistics", {})
+            topics = summary.get("topics", [])
+            suggested_questions = summary.get("suggested_questions", [])
+            
+            # 顯示統計資訊
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("📄 文件數量", stats.get("total_documents", 0))
+            
+            with col2:
+                st.metric("📖 總頁數", stats.get("total_pages", 0))
+            
+            with col3:
+                st.metric("🧩 文本塊數", stats.get("total_nodes", 0))
+            
+            with col4:
+                if stats.get("total_documents", 0) > 0:
+                    avg_pages = stats.get("total_pages", 0) / stats.get("total_documents", 1)
+                    st.metric("📊 平均頁數", f"{avg_pages:.1f}")
+                else:
+                    st.metric("📊 平均頁數", "0")
+            
+            # 主題分類
+            if topics:
+                st.subheader("🏷️ 主要主題")
+                
+                # 使用列來顯示主題
+                topic_cols = st.columns(min(len(topics), 4))  # 最多4列
+                
+                for i, topic in enumerate(topics):
+                    col_idx = i % 4
+                    with topic_cols[col_idx]:
+                        st.markdown(f"""
+                        <div style="
+                            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+                            padding: 1rem;
+                            border-radius: 10px;
+                            margin-bottom: 1rem;
+                            border-left: 4px solid #4CAF50;
+                        ">
+                            <h4 style="margin: 0; color: #2c3e50;">
+                                {topic.get('icon', '📋')} {topic.get('name', '未知主題')}
+                            </h4>
+                            <p style="margin: 0.5rem 0; color: #34495e; font-size: 0.9em;">
+                                {topic.get('description', '無描述')}
+                            </p>
+                            <div style="margin-top: 0.5rem;">
+                                {''.join([f'<span style="background: #e3f2fd; color: #1976d2; padding: 2px 6px; border-radius: 12px; font-size: 0.8em; margin-right: 4px;">{keyword}</span>' for keyword in topic.get('keywords', [])])}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+            
+            # 文件詳情
+            if stats.get("document_details"):
+                with st.expander("📋 文件詳細資訊", expanded=False):
+                    for doc in stats["document_details"]:
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        with col1:
+                            st.write(f"📄 **{doc.get('name', '未知')}**")
+                        with col2:
+                            st.write(f"📖 {doc.get('pages', 0)} 頁")
+                        with col3:
+                            st.write(f"🧩 {doc.get('node_count', 0)} 塊")
+            
+            # 建議問題
+            if suggested_questions:
+                st.subheader("💡 建議問題")
+                st.write("以下是一些您可能感興趣的問題，點擊即可快速查詢：")
+                
+                # 將建議問題分成兩列顯示
+                question_cols = st.columns(2)
+                
+                for i, question in enumerate(suggested_questions):
+                    col_idx = i % 2
+                    with question_cols[col_idx]:
+                        if st.button(f"💬 {question}", key=f"suggested_{i}", use_container_width=True):
+                            # 設定問題到輸入框並觸發查詢
+                            st.session_state.suggested_question = question
+                            st.rerun()
+            
+            st.markdown("---")
+    
+    except Exception as e:
+        st.error(f"載入知識庫摘要時發生錯誤: {str(e)}")
+    
     # 問答介面
     st.header("💬 智能問答")
     
@@ -143,18 +237,27 @@ if st.session_state.system_ready and st.session_state.rag_system:
         "台灣茶業的發展歷史如何？"
     ]
     
-    # 問題輸入
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        question = st.text_input(
-            "請輸入您的問題：",
-            placeholder="例如：台灣茶的特色是什麼？",
-            key="question_input"
-        )
-    
-    with col2:
-        ask_button = st.button("🔍 詢問", type="primary")
+    # 處理建議問題的點擊
+    suggested_question = st.session_state.get("suggested_question", "")
+    if suggested_question:
+        # 如果有建議問題，自動執行查詢
+        question = suggested_question
+        ask_button = True
+        # 清除建議問題狀態
+        st.session_state.suggested_question = ""
+    else:
+        # 問題輸入
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            question = st.text_input(
+                "請輸入您的問題：",
+                placeholder="例如：台灣茶的特色是什麼？",
+                key="question_input"
+            )
+        
+        with col2:
+            ask_button = st.button("🔍 詢問", type="primary")
     
     # 快速問題按鈕
     st.write("📝 **快速問題：**")

@@ -192,3 +192,107 @@ class RAGSystem:
                 sources.add(node.metadata["source"])
         
         return list(sources)
+    
+    def get_knowledge_base_summary(self) -> dict:
+        """取得知識庫完整摘要"""
+        if not self.index:
+            return {}
+        
+        try:
+            # 基礎統計
+            stats = self.get_document_statistics()
+            
+            # 內容主題分析
+            topics = self.analyze_content_topics()
+            
+            # 建議問題
+            suggested_questions = self.generate_suggested_questions()
+            
+            return {
+                "statistics": stats,
+                "topics": topics,
+                "suggested_questions": suggested_questions,
+                "last_updated": os.path.getmtime(INDEX_DIR) if os.path.exists(INDEX_DIR) else None
+            }
+        except Exception as e:
+            st.error(f"取得知識庫摘要時發生錯誤: {str(e)}")
+            return {}
+    
+    def get_document_statistics(self) -> dict:
+        """取得文件統計資訊"""
+        if not self.index:
+            return {}
+        
+        stats = {
+            "total_documents": 0,
+            "total_nodes": 0,
+            "document_details": [],
+            "total_pages": 0
+        }
+        
+        # 統計文件資訊
+        doc_info = {}
+        for node in self.index.docstore.docs.values():
+            source = node.metadata.get("source", "未知")
+            pages = node.metadata.get("pages", 1)
+            
+            if source not in doc_info:
+                doc_info[source] = {
+                    "name": source,
+                    "pages": pages,
+                    "node_count": 0
+                }
+            doc_info[source]["node_count"] += 1
+        
+        stats["total_documents"] = len(doc_info)
+        stats["total_nodes"] = len(self.index.docstore.docs)
+        stats["document_details"] = list(doc_info.values())
+        stats["total_pages"] = sum(doc["pages"] for doc in doc_info.values())
+        
+        return stats
+    
+    def analyze_content_topics(self) -> List[dict]:
+        """分析內容主題"""
+        if not self.index:
+            return []
+        
+        # 返回預設主題分類
+        return [
+            {
+                "name": "茶樹品種",
+                "description": "台灣茶樹品種介紹與特性分析",
+                "keywords": ["品種", "茶樹", "特性", "適應性"],
+                "icon": "🌱"
+            },
+            {
+                "name": "栽培技術", 
+                "description": "茶園管理與栽培技術要點",
+                "keywords": ["栽培", "管理", "施肥", "病蟲害"],
+                "icon": "🌿"
+            },
+            {
+                "name": "製茶工藝",
+                "description": "各類茶葉製作工藝與流程", 
+                "keywords": ["製茶", "發酵", "烘焙", "工藝"],
+                "icon": "🍃"
+            },
+            {
+                "name": "品質評鑑",
+                "description": "茶葉品質檢驗與感官評鑑",
+                "keywords": ["品質", "評鑑", "檢驗", "標準"],
+                "icon": "🎯"
+            }
+        ]
+    
+    def generate_suggested_questions(self) -> List[str]:
+        """生成建議問題"""
+        return [
+            "台灣有哪些主要的茶樹品種？",
+            "製茶的基本流程包含哪些步驟？",
+            "如何進行茶葉的感官品質評鑑？",
+            "茶園栽培管理有哪些重點？",
+            "不同茶類的製作工藝有什麼差異？",
+            "茶葉品質檢驗的標準是什麼？",
+            "台灣茶業的發展歷史如何？",
+            "茶樹病蟲害防治方法有哪些？"
+        ]

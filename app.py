@@ -13,8 +13,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# 更新系統名稱和描述
+SYSTEM_TITLE = "🤖 智能文檔問答助理"
+SYSTEM_SUBTITLE = "多模態RAG問答系統 | 支援文檔、圖片OCR與對話記憶"
+
 # 標題
-st.title(f"{PAGE_ICON} {PAGE_TITLE}")
+st.title(SYSTEM_TITLE)
+st.markdown(f"*{SYSTEM_SUBTITLE}*")
 st.markdown("---")
 
 # 初始化session state
@@ -108,6 +113,109 @@ with st.sidebar:
         else:
             st.error("請先設定 Groq API Key")
     
+    # 檔案上傳區塊
+    st.markdown("---")
+    st.header("📤 檔案上傳")
+    
+    if st.session_state.system_ready and st.session_state.rag_system:
+        # 檔案上傳界面
+        tab1, tab2 = st.tabs(["📄 文檔", "🖼️ 圖片"])
+        
+        with tab1:
+            doc_files = st.file_uploader(
+                "上傳文檔檔案",
+                type=['pdf', 'txt', 'docx', 'md'],
+                accept_multiple_files=True,
+                key="doc_uploader",
+                help="支援 PDF、TXT、DOCX、MD 格式"
+            )
+            
+            if doc_files:
+                if st.button("📝 處理文檔", key="process_docs"):
+                    with st.spinner("正在處理文檔..."):
+                        docs = st.session_state.rag_system.process_uploaded_files(doc_files)
+                        if docs:
+                            # 重建索引
+                            if st.session_state.rag_system.rebuild_index_with_user_files():
+                                st.success(f"✅ 成功處理 {len(docs)} 個文檔!")
+                                st.rerun()
+                            else:
+                                st.error("重建索引失敗")
+        
+        with tab2:
+            # 檢查OCR是否可用
+            if st.session_state.rag_system.ocr_processor.is_available():
+                image_files = st.file_uploader(
+                    "上傳圖片檔案",
+                    type=['png', 'jpg', 'jpeg', 'webp', 'bmp'],
+                    accept_multiple_files=True,
+                    key="image_uploader",
+                    help="支援 PNG、JPG、JPEG、WEBP、BMP 格式，將使用 Google Gemini 進行OCR"
+                )
+                
+                if image_files:
+                    if st.button("🔍 OCR處理", key="process_images"):
+                        with st.spinner("正在進行OCR處理..."):
+                            docs = st.session_state.rag_system.process_uploaded_files(image_files)
+                            if docs:
+                                # 重建索引
+                                if st.session_state.rag_system.rebuild_index_with_user_files():
+                                    st.success(f"✅ 成功OCR處理 {len(docs)} 張圖片!")
+                                    st.rerun()
+                                else:
+                                    st.error("重建索引失敗")
+            else:
+                st.warning("⚠️ OCR功能不可用")
+                st.write("請檢查 GEMINI_API_KEY 是否已正確設定")
+        
+        # 已上傳檔案管理
+        if hasattr(st.session_state.rag_system, 'file_manager'):
+            file_stats = st.session_state.rag_system.file_manager.get_file_stats()
+            if file_stats['total_files'] > 0:
+                st.write("📁 **已上傳檔案:**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("📄 文檔", file_stats['document_count'])
+                with col2:
+                    st.metric("🖼️ 圖片", file_stats['image_count'])
+                
+                # 檔案清理按鈕
+                if st.button("🗑️ 清除所有上傳檔案", key="clear_files"):
+                    # 這裡需要實作清除功能
+                    st.warning("檔案清除功能開發中...")
+    
+    else:
+        st.info("請先初始化系統才能上傳檔案")
+    
+    # 對話記憶控制
+    st.markdown("---")
+    st.header("🧠 對話記憶")
+    
+    if st.session_state.system_ready and st.session_state.rag_system:
+        # 記憶統計
+        memory_stats = st.session_state.rag_system.memory.get_memory_stats()
+        
+        if memory_stats['enabled']:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("記憶步數", f"{memory_stats['current_count']}/{memory_stats['max_steps']}")
+            with col2:
+                if st.button("🗑️ 清除記憶"):
+                    st.session_state.rag_system.clear_conversation_memory()
+                    st.success("記憶已清除")
+                    st.rerun()
+            
+            # 顯示記憶內容
+            memory_content = st.session_state.rag_system.get_memory_for_display()
+            if memory_content:
+                with st.expander("👁️ 查看記憶內容", expanded=False):
+                    for mem in memory_content:
+                        st.write(f"**Q{mem['id']}:** {mem['question'][:50]}...")
+                        st.write(f"**A{mem['id']}:** {mem['answer'][:100]}...")
+                        st.write("---")
+        else:
+            st.info("對話記憶功能未啟用")
+    
     # 顯示系統狀態
     st.markdown("---")
     st.header("📊 系統狀態")
@@ -115,13 +223,30 @@ with st.sidebar:
     if st.session_state.system_ready:
         st.success("🟢 系統已就緒")
         
+        # API狀態檢查
+        api_status_col1, api_status_col2 = st.columns(2)
+        
+        with api_status_col1:
+            if GROQ_API_KEY:
+                st.success("✅ Groq API")
+            else:
+                st.error("❌ Groq API")
+        
+        with api_status_col2:
+            if GEMINI_API_KEY:
+                st.success("✅ Gemini API")
+            else:
+                st.warning("⚠️ Gemini API")
+        
         # 顯示載入的文件
         if st.session_state.rag_system:
             sources = st.session_state.rag_system.get_source_info()
             if sources:
-                st.write("📚 已載入的文件:")
-                for source in sources:
+                st.write("📚 **已載入的文件:**")
+                for source in sources[:5]:  # 只顯示前5個
                     st.write(f"• {source}")
+                if len(sources) > 5:
+                    st.write(f"... 還有 {len(sources) - 5} 個檔案")
     else:
         st.warning("🟡 系統尚未初始化")
     
@@ -279,41 +404,117 @@ if st.session_state.system_ready and st.session_state.rag_system:
 
 else:
     # 歡迎頁面
-    st.header("🌟 歡迎使用台灣茶葉知識問答系統")
+    st.header("🌟 歡迎使用智能文檔問答助理")
     
     st.markdown("""
-    ### 🍵 關於本系統
+    ### 🤖 關於本系統
     
-    這是一個基於人工智慧的茶葉知識問答系統，會**自動從台灣茶及飲料作物改良場網站發現並下載最新的PDF文件**，建立完整的茶葉知識庫。
+    這是一個**多模態RAG問答系統**，支援文檔、圖片OCR與對話記憶功能。系統預設載入台灣茶葉相關資料作為演示，
+    同時支援使用者上傳任何類型的文檔和圖片，建立個人專屬的智能問答助理。
     
-    ### ✨ 主要功能
-    - 🤖 **智能問答**：基於專業茶葉文獻的AI問答
-    - 🔍 **自動發現**：自動從官方網站發現並下載最新PDF文件
-    - 📚 **動態知識庫**：即時更新的台茶改場研究資料
-    - 🎯 **精準搜尋**：使用向量搜尋技術找到最相關的資訊
-    - 💡 **即時回應**：快速獲得專業的茶葉知識解答
+    ### ✨ 核心功能
     
-    ### 🚀 開始使用
-    請在左側邊欄點擊「初始化系統」按鈕，系統會自動發現並下載台茶改場網站上的所有PDF文件。
+    #### 📄 多格式文檔支援
+    - **PDF文檔**：自動解析PDF內容並建立索引
+    - **文字檔案**：支援TXT、MD格式
+    - **Office文檔**：支援DOCX格式（開發中）
     
-    ### 📖 資料來源
-    本系統會自動從以下網站發現並下載PDF文件：
-    - 台灣茶業研究彙報摘要頁面
-    - 其他茶業相關資料頁面
-    - 所有在台茶改場網站上可找到的PDF文件
+    #### 🖼️ 智能OCR識別
+    - **圖片文字識別**：使用Google Gemini 2.5 Pro進行高精度OCR
+    - **多語言支援**：中文、英文混合內容識別
+    - **格式保持**：保留原始排版、表格、列表結構
     
-    資料來源：[台灣茶及飲料作物改良場](https://www.tbrs.gov.tw/)
+    #### 🧠 對話記憶功能
+    - **上下文感知**：記住前N步對話內容
+    - **智能問答**：結合歷史對話提供更精準的回答
+    - **記憶管理**：可查看、清除對話記憶
+    
+    #### 🔍 高效向量搜尋
+    - **ChromaDB儲存**：高效能向量資料庫
+    - **語義搜尋**：基於內容語義而非關鍵詞匹配
+    - **多資料源整合**：統一搜尋所有上傳的資料
+    
+    ### 🚀 使用流程
+    
+    1. **🔧 系統初始化**：點擊左側「初始化系統」載入預設茶葉資料
+    2. **📤 檔案上傳**：上傳您的文檔或圖片到系統
+    3. **🔍 OCR處理**：圖片自動進行文字識別
+    4. **💬 智能問答**：開始與您的文檔進行對話
+    5. **🧠 記憶對話**：系統會記住對話歷史，提供連續對話體驗
+    
+    ### 📊 預設演示資料
+    
+    系統預設包含**台灣茶葉相關資料**作為功能展示：
+    - 🍵 台灣茶業研究彙報
+    - 📋 茶樹品種與栽培技術
+    - 🏭 製茶工藝與品質評鑑
+    - 📈 茶業發展與市場分析
+    
+    *資料來源：[台灣茶及飲料作物改良場](https://www.tbrs.gov.tw/)*
+    
+    ### 💡 使用建議
+    
+    - **首次使用**：先體驗預設茶葉資料，了解系統能力
+    - **個人化使用**：上傳您的工作文檔、學習資料或研究資料
+    - **圖片文字**：上傳包含文字的圖片，系統會自動識別並加入知識庫
+    - **連續對話**：善用對話記憶功能，進行深度討論和分析
     """)
+    
+    # 功能特色展示
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        #### 🎯 精準問答
+        - 語義理解查詢
+        - 上下文感知回答
+        - 多資料源整合
+        """)
+    
+    with col2:
+        st.markdown("""
+        #### 🚀 高效處理
+        - ChromaDB向量儲存
+        - 批次檔案處理
+        - 增量索引更新
+        """)
+    
+    with col3:
+        st.markdown("""
+        #### 🔒 資料安全
+        - 本地向量儲存
+        - 檔案持久化保存
+        - API安全調用
+        """)
     
     # 顯示技術架構
     with st.expander("🔧 技術架構", expanded=False):
         st.markdown("""
-        - **前端框架**：Streamlit
-        - **RAG框架**：LlamaIndex
-        - **語言模型**：Groq (Llama3-8B)
-        - **嵌入模型**：HuggingFace Sentence Transformers
-        - **向量資料庫**：ChromaDB
-        - **文件處理**：PyMuPDF
+        ### 核心技術棧
+        
+        #### 🎨 前端界面
+        - **Streamlit**: 響應式Web界面
+        - **多頁面佈局**: 檔案上傳、記憶管理、系統狀態
+        
+        #### 🧠 AI模型
+        - **語言模型**: Groq (Llama3-70B) - RAG問答
+        - **OCR模型**: Google Gemini 2.5 Pro - 圖片文字識別
+        - **嵌入模型**: HuggingFace Sentence Transformers
+        
+        #### 💾 資料儲存
+        - **向量資料庫**: ChromaDB (持久化儲存)
+        - **檔案系統**: 本地檔案管理與備份
+        - **記憶管理**: 對話歷史暫存
+        
+        #### 🔧 處理引擎
+        - **RAG框架**: LlamaIndex
+        - **文檔解析**: PyMuPDF, python-docx, 等
+        - **圖片處理**: Pillow, OpenCV
+        
+        #### 🌐 API整合
+        - **Groq API**: 高速LLM推理
+        - **Google Gemini API**: 多模態AI能力
+        - **RESTful設計**: 模組化API架構
         """)
 
 # 頁腳

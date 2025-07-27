@@ -8,4 +8,8 @@ __pycache__/
 .env.test.local
 .env.production.local
 *.pdf
-data/index/*.*
+data/index/*
+data/user_uploads/
+data/pdfs/*
+data/chroma_db/
+

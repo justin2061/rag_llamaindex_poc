@@ -522,8 +522,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: #666;'>
-    🍵 台灣茶葉知識問答系統 | 
-    資料來源：<a href='https://www.tbrs.gov.tw/' target='_blank'>台灣茶及飲料作物改良場</a>
+    🍵 知識問答系統
     </div>
     """, 
     unsafe_allow_html=True

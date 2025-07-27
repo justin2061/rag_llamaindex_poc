@@ -207,7 +207,7 @@ if st.session_state.system_ready and st.session_state.rag_system:
             # 建議問題
             if suggested_questions:
                 st.subheader("💡 建議問題")
-                st.write("以下是一些您可能感興趣的問題，點擊即可快速查詢：")
+                st.write("以下是一些您可能感興趣的問題，點擊即可填入下方輸入框：")
                 
                 # 將建議問題分成兩列顯示
                 question_cols = st.columns(2)
@@ -216,8 +216,8 @@ if st.session_state.system_ready and st.session_state.rag_system:
                     col_idx = i % 2
                     with question_cols[col_idx]:
                         if st.button(f"💬 {question}", key=f"suggested_{i}", use_container_width=True):
-                            # 設定問題到輸入框並觸發查詢
-                            st.session_state.suggested_question = question
+                            # 將問題填入輸入框
+                            st.session_state.question_input = question
                             st.rerun()
             
             st.markdown("---")
@@ -228,44 +228,18 @@ if st.session_state.system_ready and st.session_state.rag_system:
     # 問答介面
     st.header("💬 智能問答")
     
-    # 預設問題
-    sample_questions = [
-        "台灣茶的主要品種有哪些？",
-        "製茶的基本流程是什麼？",
-        "如何進行茶葉品質評鑑？",
-        "茶園的栽培管理要注意什麼？",
-        "台灣茶業的發展歷史如何？"
-    ]
+    # 問題輸入
+    col1, col2 = st.columns([3, 1])
     
-    # 處理建議問題的點擊
-    suggested_question = st.session_state.get("suggested_question", "")
-    if suggested_question:
-        # 如果有建議問題，自動執行查詢
-        question = suggested_question
-        ask_button = True
-        # 清除建議問題狀態
-        st.session_state.suggested_question = ""
-    else:
-        # 問題輸入
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            question = st.text_input(
-                "請輸入您的問題：",
-                placeholder="例如：台灣茶的特色是什麼？",
-                key="question_input"
-            )
-        
-        with col2:
-            ask_button = st.button("🔍 詢問", type="primary")
+    with col1:
+        question = st.text_input(
+            "請輸入您的問題：",
+            placeholder="例如：台灣茶的特色是什麼？",
+            key="question_input"
+        )
     
-    # 快速問題按鈕
-    st.write("📝 **快速問題：**")
-    cols = st.columns(len(sample_questions))
-    for i, sample_q in enumerate(sample_questions):
-        if cols[i].button(sample_q, key=f"sample_{i}"):
-            question = sample_q
-            ask_button = True
+    with col2:
+        ask_button = st.button("🔍 詢問", type="primary")
     
     # 處理問答
     if ask_button and question:

@@ -38,6 +38,27 @@ INDEX_DIR = os.path.join(DATA_DIR, "index")
 os.makedirs(PDF_DIR, exist_ok=True)
 os.makedirs(INDEX_DIR, exist_ok=True)
 
+# Google Gemini設定
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+ENABLE_OCR = os.getenv("ENABLE_OCR", "true").lower() == "true"
+
+# 檔案上傳設定
+MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", 10))
+MAX_IMAGE_SIZE_MB = int(os.getenv("MAX_IMAGE_SIZE_MB", 5))
+SUPPORTED_FILE_TYPES = os.getenv("SUPPORTED_FILE_TYPES", "pdf,txt,docx,md,png,jpg,jpeg,webp,bmp").split(',')
+MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", 50))
+
+# 對話記憶設定
+CONVERSATION_MEMORY_STEPS = int(os.getenv("CONVERSATION_MEMORY_STEPS", 5))
+MAX_CONTEXT_LENGTH = int(os.getenv("MAX_CONTEXT_LENGTH", 4000))
+ENABLE_CONVERSATION_MEMORY = os.getenv("ENABLE_CONVERSATION_MEMORY", "true").lower() == "true"
+
+# 檔案路徑設定
+USER_UPLOADS_DIR = os.path.join(DATA_DIR, "user_uploads")
+
+# 建立目錄
+os.makedirs(USER_UPLOADS_DIR, exist_ok=True)
+
 # Streamlit 設定
 PAGE_TITLE = "台灣茶葉知識問答系統"
-PAGE_ICON = "🍵" 
+PAGE_ICON = "🍵"

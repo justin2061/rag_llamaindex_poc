@@ -10,6 +10,11 @@ from llama_index.llms.groq import Groq
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core.node_parser import SimpleNodeParser
 
+# 導入新的功能模組
+from conversation_memory import ConversationMemory
+from user_file_manager import UserFileManager
+from gemini_ocr import GeminiOCRProcessor
+
 # 嘗試導入不同的PDF處理庫
 PDF_READER = None
 PDF_READER_TYPE = None

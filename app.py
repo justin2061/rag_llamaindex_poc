@@ -1,8 +1,9 @@
 import streamlit as st
 import os
+from datetime import datetime
 from enhanced_pdf_downloader import EnhancedPDFDownloader
-from rag_system import RAGSystem
-from config import PAGE_TITLE, PAGE_ICON, GROQ_API_KEY, WEB_SOURCES
+from enhanced_rag_system import EnhancedRAGSystem
+from config import PAGE_TITLE, PAGE_ICON, GROQ_API_KEY, WEB_SOURCES, GEMINI_API_KEY
 
 # 頁面配置
 st.set_page_config(
@@ -22,12 +23,15 @@ if 'rag_system' not in st.session_state:
 if 'system_ready' not in st.session_state:
     st.session_state.system_ready = False
 
+# 設定當前時間到session state
+st.session_state.current_time = datetime.now().isoformat()
+
 # 自動載入現有索引（如果存在）
 if not st.session_state.system_ready and GROQ_API_KEY:
     if os.path.exists(os.path.join("data", "index")) and os.listdir(os.path.join("data", "index")):
         with st.spinner("正在載入現有索引..."):
             try:
-                rag_system = RAGSystem()
+                rag_system = EnhancedRAGSystem()
                 if rag_system.load_existing_index():
                     st.session_state.rag_system = rag_system
                     st.session_state.system_ready = True
@@ -73,7 +77,7 @@ with st.sidebar:
                 if all_pdfs:
                     # 步驟3: 初始化RAG系統
                     st.info("🔧 步驟3: 初始化RAG系統...")
-                    rag_system = RAGSystem()
+                    rag_system = EnhancedRAGSystem()
                     
                     # 步驟4: 載入PDF檔案
                     st.info("📖 步驟4: 載入PDF檔案...")
@@ -246,8 +250,8 @@ if st.session_state.system_ready and st.session_state.rag_system:
         with st.container():
             st.markdown("### 💡 回答")
             
-            # 執行查詢
-            response = st.session_state.rag_system.query(question)
+            # 執行查詢 (使用帶上下文記憶的查詢)
+            response = st.session_state.rag_system.query_with_context(question)
             
             # 顯示回答
             st.markdown(response)

@@ -1,7 +1,7 @@
 import os
 from typing import List, Optional
 import streamlit as st
-from llama_index.core import VectorStoreIndex, Document, Settings
+from llama_index.core import VectorStoreIndex, Document, Settings, load_index_from_storage
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.core.storage.index_store import SimpleIndexStore
@@ -128,24 +128,31 @@ class RAGSystem:
         
         return documents
     
+    def load_existing_index(self) -> bool:
+        """載入現有的向量索引"""
+        try:
+            if os.path.exists(INDEX_DIR) and os.listdir(INDEX_DIR):
+                with st.spinner("正在載入現有索引..."):
+                    storage_context = StorageContext.from_defaults(persist_dir=INDEX_DIR)
+                    self.index = load_index_from_storage(storage_context)
+                    self.setup_query_engine()
+                    st.success("✅ 成功載入現有索引")
+                    return True
+            else:
+                return False
+        except Exception as e:
+            st.error(f"載入索引時發生錯誤: {str(e)}")
+            return False
+    
     def create_index(self, documents: List[Document]) -> VectorStoreIndex:
-        """建立向量索引"""
+        """建立新的向量索引"""
         with st.spinner("正在建立向量索引..."):
             try:
-                # 檢查是否已有現存的索引
-                if os.path.exists(INDEX_DIR) and os.listdir(INDEX_DIR):
-                    storage_context = StorageContext.from_defaults(persist_dir=INDEX_DIR)
-                    index = VectorStoreIndex.from_documents(
-                        documents, 
-                        storage_context=storage_context
-                    )
-                    st.info("使用現有索引")
-                else:
-                    # 建立新索引
-                    index = VectorStoreIndex.from_documents(documents)
-                    # 儲存索引
-                    index.storage_context.persist(persist_dir=INDEX_DIR)
-                    st.success("成功建立新索引")
+                # 建立新索引
+                index = VectorStoreIndex.from_documents(documents)
+                # 儲存索引
+                index.storage_context.persist(persist_dir=INDEX_DIR)
+                st.success("✅ 成功建立新索引")
                 
                 self.index = index
                 return index
@@ -184,4 +191,4 @@ class RAGSystem:
             if "source" in node.metadata:
                 sources.add(node.metadata["source"])
         
-        return list(sources) 
+        return list(sources)

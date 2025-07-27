@@ -22,6 +22,19 @@ if 'rag_system' not in st.session_state:
 if 'system_ready' not in st.session_state:
     st.session_state.system_ready = False
 
+# 自動載入現有索引（如果存在）
+if not st.session_state.system_ready and GROQ_API_KEY:
+    if os.path.exists(os.path.join("data", "index")) and os.listdir(os.path.join("data", "index")):
+        with st.spinner("正在載入現有索引..."):
+            try:
+                rag_system = RAGSystem()
+                if rag_system.load_existing_index():
+                    st.session_state.rag_system = rag_system
+                    st.session_state.system_ready = True
+                    st.success("🚀 系統已自動載入現有索引，可以直接開始查詢！")
+            except Exception as e:
+                st.warning(f"自動載入索引時發生錯誤: {str(e)}")
+
 # 側邊欄
 with st.sidebar:
     st.header("🔧 系統設定")
@@ -36,7 +49,8 @@ with st.sidebar:
     st.markdown("---")
     
     # 系統初始化按鈕
-    if st.button("🚀 初始化系統", type="primary"):
+    init_button_text = "🔄 重建索引" if st.session_state.system_ready else "🚀 初始化系統"
+    if st.button(init_button_text, type="primary"):
         if GROQ_API_KEY:
             with st.spinner("正在初始化系統..."):
                 # 使用增強版下載器自動發現並下載PDF檔案
@@ -109,11 +123,11 @@ with st.sidebar:
     
     st.markdown("---")
     st.write("📖 **使用說明:**")
-    st.write("1. 首次使用請點擊「初始化系統」")
-    st.write("2. 系統會自動從台茶改場網站發現並下載PDF文件")
-    st.write("3. 等待系統處理文件並建立知識庫")
-    st.write("4. 在主頁面輸入您的問題")
-    st.write("5. 系統會基於茶葉知識庫回答")
+    st.write("1. 🔄 **自動載入**：如有現有索引，系統會自動載入")
+    st.write("2. 🆕 **首次使用**：點擊「初始化系統」建立知識庫")
+    st.write("3. 📥 **自動下載**：系統會從台茶改場網站下載PDF文件")
+    st.write("4. 💬 **開始查詢**：在主頁面輸入您的問題")
+    st.write("5. 🤖 **智能回答**：系統會基於茶葉知識庫回答")
 
 # 主要內容區域
 if st.session_state.system_ready and st.session_state.rag_system:
@@ -231,4 +245,4 @@ st.markdown(
     </div>
     """, 
     unsafe_allow_html=True
-) 
+)

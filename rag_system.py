@@ -79,7 +79,8 @@ class RAGSystem:
     def __init__(self):
         self.index = None
         self.query_engine = None
-        self._setup_models()
+        self.models_initialized = False
+        # 延遲初始化模型，避免在頁面載入時就初始化
         
     def _setup_models(self):
         """設定模型"""
@@ -153,6 +154,12 @@ class RAGSystem:
         """建立新的向量索引"""
         with st.spinner("正在建立向量索引..."):
             try:
+                # 確保模型已正確初始化
+                if not self.models_initialized:
+                    st.info("正在初始化模型...")
+                    self._setup_models()
+                    self.models_initialized = True
+                
                 # 建立新索引
                 index = VectorStoreIndex.from_documents(documents)
                 # 儲存索引

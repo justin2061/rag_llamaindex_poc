@@ -19,6 +19,43 @@ class EnhancedRAGSystem(RAGSystem):
         self.ocr_processor = GeminiOCRProcessor()
         self.chroma_manager = ChromaVectorStoreManager() if use_chroma else None
         self.use_chroma = use_chroma
+    
+    def _ensure_models_initialized(self):
+        """確保模型已初始化"""
+        if not self.models_initialized:
+            self._setup_models()
+            self.models_initialized = True
+    
+    def _setup_models(self):
+        """設定模型 - 覆寫父類方法以確保正確初始化"""
+        from config import GROQ_API_KEY, EMBEDDING_MODEL, LLM_MODEL
+        from llama_index.llms.groq import Groq
+        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+        from llama_index.core.node_parser import SimpleNodeParser
+        from llama_index.core import Settings
+        import streamlit as st
+        
+        # 設定LLM
+        if GROQ_API_KEY:
+            llm = Groq(model=LLM_MODEL, api_key=GROQ_API_KEY)
+        else:
+            st.error("請設定GROQ_API_KEY環境變數")
+            return
+        
+        # 設定嵌入模型
+        try:
+            embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
+            st.info(f"✅ 成功初始化嵌入模型: {EMBEDDING_MODEL}")
+        except Exception as e:
+            st.error(f"嵌入模型初始化失敗: {str(e)}")
+            return
+        
+        # 設定全域配置
+        Settings.llm = llm
+        Settings.embed_model = embed_model
+        Settings.node_parser = SimpleNodeParser.from_defaults(chunk_size=1024)
+        
+        st.success("🔧 模型初始化完成")
         
     def query_with_context(self, question: str) -> str:
         """帶上下文記憶的查詢"""
@@ -193,6 +230,9 @@ class EnhancedRAGSystem(RAGSystem):
     def create_index(self, documents: List[Document]) -> VectorStoreIndex:
         """建立新的向量索引 (支援 ChromaDB)"""
         with st.spinner("正在建立向量索引..."):
+            # 確保模型已正確初始化
+            self._ensure_models_initialized()
+            
             chroma_success = False
             index = None
             

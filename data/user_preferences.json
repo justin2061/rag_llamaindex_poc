@@ -1,0 +1,19 @@
+{
+  "is_first_visit": false,
+  "preferred_mode": "personal",
+  "completed_onboarding": true,
+  "upload_history": [],
+  "chat_preferences": {
+    "theme": "light",
+    "language": "zh-TW",
+    "show_sources": true,
+    "enable_memory": true
+  },
+  "last_visit": "2025-07-27T15:42:46.637029",
+  "feature_discovery": {
+    "drag_drop": false,
+    "batch_upload": false,
+    "chat_memory": false,
+    "file_management": false
+  }
+}

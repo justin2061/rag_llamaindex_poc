@@ -219,6 +219,34 @@ class EnhancedRAGSystem(RAGSystem):
                 )
                 return document
             
+            elif file_ext == '.docx':
+                # DOCX檔處理
+                try:
+                    import docx
+                    doc = docx.Document(file_path)
+                    text = ""
+                    for paragraph in doc.paragraphs:
+                        text += paragraph.text + "\n"
+                    
+                    document = Document(
+                        text=text,
+                        metadata={
+                            "source": uploaded_file.name,
+                            "type": "user_document",
+                            "original_format": "docx",
+                            "file_size": uploaded_file.size,
+                            "uploaded_at": st.session_state.get('current_time', 'unknown')
+                        }
+                    )
+                    return document
+                    
+                except ImportError:
+                    st.error("需要安裝 python-docx 套件來處理 DOCX 檔案")
+                    return None
+                except Exception as e:
+                    st.error(f"DOCX 檔案處理失敗: {str(e)}")
+                    return None
+            
             else:
                 st.warning(f"暫不支援的文檔格式: {file_ext}")
                 return None

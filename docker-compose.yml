@@ -1,35 +1,55 @@
 version: '3.8'
 
 services:
-  rag-app:
+  graphrag-app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: taiwan-tea-rag
+    container_name: graphrag-intelligent-assistant
     ports:
-      - "8620:8501"
+      - "8501:8501"
     volumes:
       - ./data:/app/data           # 掛載資料目錄 (持久化)
       - ./.env:/app/.env           # 掛載環境變數檔案
+      - ./components:/app/components # 掛載 UI 組件
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PYTHONPATH=/app
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     networks:
       - rag-network
 
-  # 可選：如果未來要使用外部向量資料庫
-  # chromadb:
-  #   image: ghcr.io/chroma-core/chroma:latest
-  #   container_name: chroma-db
-  #   ports:
-  #     - "8000:8000"
-  #   volumes:
-  #     - chroma_data:/chroma/chroma
-  #   environment:
-  #     - CHROMA_SERVER_HOST=0.0.0.0
-  #     - CHROMA_SERVER_HTTP_PORT=8000
-  #   networks:
-  #     - rag-network
+  # ChromaDB 向量資料庫 (Graph RAG 推薦使用)
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:latest
+    container_name: graphrag-chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - rag-network
+    restart: unless-stopped
 
 networks:
   rag-network:
@@ -37,4 +57,4 @@ networks:
 
 volumes:
   chroma_data:
-    driver: local 
+    driver: local

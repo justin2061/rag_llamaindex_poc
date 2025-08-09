@@ -22,20 +22,24 @@ from config import (
 if not hasattr(st.session_state, 'page_configured'):
     st.session_state.page_configured = True
 
-@st.cache_resource
+# 移除不必要的緩存，改為延遲初始化
 def init_layout():
     """初始化佈局管理器"""
-    return MainLayout()
+    if 'layout' not in st.session_state:
+        st.session_state.layout = MainLayout()
+    return st.session_state.layout
 
-@st.cache_resource  
 def init_upload_zone():
     """初始化上傳區域"""
-    return UploadZone()
+    if 'upload_zone' not in st.session_state:
+        st.session_state.upload_zone = UploadZone()
+    return st.session_state.upload_zone
 
-@st.cache_resource
 def init_chat_interface():
     """初始化聊天介面"""
-    return ChatInterface()
+    if 'chat_interface' not in st.session_state:
+        st.session_state.chat_interface = ChatInterface()
+    return st.session_state.chat_interface
 
 def init_rag_system():
     """初始化 RAG 系統"""
@@ -108,29 +112,25 @@ def render_home_page(layout: MainLayout):
         """, unsafe_allow_html=True)
     
     with col2:
-        st.markdown("""
-        <div class="custom-card">
-            <h3>📊 系統狀態</h3>
-        """, unsafe_allow_html=True)
-        
-        # 系統狀態檢查
-        if GROQ_API_KEY:
-            st.success("✅ Groq API 已配置")
-        else:
-            st.error("❌ Groq API 需要配置")
+        with st.container():
+            st.markdown("### 📊 系統狀態")
             
-        if GEMINI_API_KEY:
-            st.success("✅ Gemini API 已配置 (OCR 功能可用)")
-        else:
-            st.warning("⚠️ Gemini API 未配置 (OCR 功能不可用)")
+            # 系統狀態檢查
+            if GROQ_API_KEY:
+                st.success("✅ Groq API 已配置")
+            else:
+                st.error("❌ Groq API 需要配置")
+                
+            if GEMINI_API_KEY:
+                st.success("✅ Gemini API 已配置 (OCR 功能可用)")
+            else:
+                st.warning("⚠️ Gemini API 未配置 (OCR 功能不可用)")
+                
+            if st.session_state.get('has_existing_index', False):
+                st.info("📚 發現現有知識庫")
             
-        if st.session_state.get('has_existing_index', False):
-            st.info("📚 發現現有知識庫")
-        
-        if st.session_state.get('has_user_files', False):
-            st.info("📁 發現用戶上傳的檔案")
-            
-        st.markdown("</div>", unsafe_allow_html=True)
+            if st.session_state.get('has_user_files', False):
+                st.info("📁 發現用戶上傳的檔案")
 
 def render_knowledge_base_page(layout: MainLayout, upload_zone: UploadZone, chat_interface: ChatInterface):
     """渲染知識庫頁面"""

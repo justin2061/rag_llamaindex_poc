@@ -39,7 +39,29 @@
 
 ## 🚀 快速開始
 
-### 方法一：Docker 部署 (推薦)
+### 方法一：超快速啟動 (強力推薦) 🚀
+```bash
+# 1. 克隆專案
+git clone <repository-url>
+cd rag_llamaindex_poc
+
+# 2. 僅需安裝 2 個基本依賴
+pip install streamlit python-dotenv
+
+# 3. 超快速啟動（3 秒載入，專業配色）
+streamlit run ultra_fast_start.py
+
+# 4. 享受極速體驗
+# 自動開啟瀏覽器 http://localhost:8501
+```
+
+### 方法二：快速啟動 (輕量版) ⚡
+```bash
+# 如果偏好原版快速啟動
+streamlit run quick_start.py
+```
+
+### 方法二：Docker 部署 (生產環境推薦) 🐳
 
 ```bash
 # 1. 克隆專案
@@ -47,6 +69,10 @@ git clone <repository-url>
 cd rag_llamaindex_poc
 
 # 2. 運行部署腳本
+# Windows:
+docker-deploy.bat
+
+# Linux/macOS:
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 
@@ -54,7 +80,7 @@ chmod +x docker-deploy.sh
 open http://localhost:8501
 ```
 
-### 方法二：本地開發
+### 方法三：完整本地開發 🔧
 
 ```bash
 # 1. 創建虛擬環境
@@ -68,9 +94,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # 編輯 .env 檔案，設定 API 金鑰
 
-# 4. 啟動系統
-python run_graphrag.py
-# 或者
+# 4. 啟動完整系統
 streamlit run main_app.py
 ```
 

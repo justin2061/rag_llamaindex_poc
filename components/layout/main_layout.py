@@ -1,5 +1,9 @@
 import streamlit as st
-from streamlit_option_menu import option_menu
+try:
+    from streamlit_option_menu import option_menu
+    HAS_OPTION_MENU = True
+except ImportError:
+    HAS_OPTION_MENU = False
 
 class MainLayout:
     """主應用程式佈局管理器"""
@@ -21,17 +25,17 @@ class MainLayout:
         """載入自定義CSS樣式"""
         st.markdown("""
         <style>
-        /* 主要樣式系統 */
+        /* 主要樣式系統 - 使用系統配色 */
         :root {
-            --primary-color: #667eea;
-            --secondary-color: #764ba2;
-            --success-color: #10b981;
-            --warning-color: #f59e0b;
-            --error-color: #ef4444;
-            --background-color: #f8fafc;
+            --primary-color: #4f46e5;
+            --secondary-color: #7c3aed;
+            --success-color: #059669;
+            --warning-color: #d97706;
+            --error-color: #dc2626;
+            --background-color: #ffffff;
             --card-background: #ffffff;
-            --text-primary: #1f2937;
-            --text-secondary: #6b7280;
+            --text-primary: #111827;
+            --text-secondary: #374151;
             --border-color: #e5e7eb;
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
@@ -42,11 +46,39 @@ class MainLayout:
         header {visibility: hidden;}
         .stDeployButton {display: none;}
         
+        /* 強制設定背景為白色 */
+        .stApp {
+            background-color: var(--background-color) !important;
+        }
+        
+        .main {
+            background-color: var(--background-color) !important;
+        }
+        
         /* 主容器樣式 */
         .main > div {
             padding-top: 1rem;
             max-width: 1400px;
             margin: 0 auto;
+            background-color: var(--background-color) !important;
+        }
+        
+        /* 側邊欄樣式 */
+        .stSidebar {
+            background-color: var(--background-color) !important;
+        }
+        
+        .stSidebar .stSelectbox > div > div {
+            background-color: var(--card-background) !important;
+            color: var(--text-primary) !important;
+        }
+        
+        .stSidebar .stRadio > div {
+            background-color: var(--background-color) !important;
+        }
+        
+        .stSidebar .stRadio label {
+            color: var(--text-primary) !important;
         }
         
         /* 卡片樣式 */
@@ -69,18 +101,18 @@ class MainLayout:
         .page-title {
             font-size: 2.5rem;
             font-weight: 700;
-            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: var(--text-primary);
             text-align: center;
             margin-bottom: 0.5rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         
         .page-subtitle {
             font-size: 1.2rem;
-            color: var(--text-secondary);
+            color: var(--text-primary);
             text-align: center;
             margin-bottom: 2rem;
+            opacity: 0.8;
         }
         
         /* 按鈕樣式 */
@@ -173,29 +205,41 @@ class MainLayout:
     def render_navigation(self):
         """渲染主導航選單"""
         with st.sidebar:
-            selected = option_menu(
-                menu_title="主選單",
-                options=["🏠 首頁", "📚 我的知識庫", "🍵 演示模式", "📊 知識圖譜", "⚙️ 設定"],
-                icons=["house", "book", "cup-hot", "diagram-3", "gear"],
-                menu_icon="list",
-                default_index=0,
-                styles={
-                    "container": {"padding": "0!important", "background-color": "#ffffff"},
-                    "icon": {"color": "#667eea", "font-size": "18px"}, 
-                    "nav-link": {
-                        "font-size": "16px", 
-                        "text-align": "left", 
-                        "margin": "0px",
-                        "padding": "0.5rem 1rem",
-                        "border-radius": "0.5rem",
-                        "margin-bottom": "0.25rem"
-                    },
-                    "nav-link-selected": {
-                        "background-color": "#667eea",
-                        "color": "white"
-                    },
-                }
-            )
+            if HAS_OPTION_MENU:
+                # 使用 streamlit-option-menu（如果可用）
+                selected = option_menu(
+                    menu_title="主選單",
+                    options=["🏠 首頁", "📚 我的知識庫", "🍵 演示模式", "📊 知識圖譜", "⚙️ 設定"],
+                    icons=["house", "book", "cup-hot", "diagram-3", "gear"],
+                    menu_icon="list",
+                    default_index=0,
+                    styles={
+                        "container": {"padding": "0!important", "background-color": "#ffffff"},
+                        "icon": {"color": "#667eea", "font-size": "18px"}, 
+                        "nav-link": {
+                            "font-size": "16px", 
+                            "text-align": "left", 
+                            "margin": "0px",
+                            "padding": "0.5rem 1rem",
+                            "border-radius": "0.5rem",
+                            "margin-bottom": "0.25rem"
+                        },
+                        "nav-link-selected": {
+                            "background-color": "#667eea",
+                            "color": "white"
+                        },
+                    }
+                )
+            else:
+                # 回退到內建選擇器
+                st.markdown("### 📋 主選單")
+                selected = st.radio(
+                    "選擇頁面",
+                    options=["🏠 首頁", "📚 我的知識庫", "🍵 演示模式", "📊 知識圖譜", "⚙️ 設定"],
+                    index=0,
+                    label_visibility="collapsed"
+                )
+            
             return selected
             
     def render_sidebar_info(self):

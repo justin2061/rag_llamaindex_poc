@@ -60,8 +60,50 @@ temp/
 README.md
 *.md
 
-# Large data files (should be downloaded by the app)
-data/pdfs/*.pdf
+# Large data files and directories (should be downloaded by the app)
+# 完全排除整個 data 目錄
+data/
+
+# 明確排除特定子目錄
+data/pdfs/
+data/chroma_db/
+data/index/
+data/user_uploads/
+
+# 排除巨大的 ChromaDB 文件
+*.bin
+link_lists.bin
+data_level*.bin
+chroma.sqlite3
 
 # Node modules (if any)
-node_modules/ 
+node_modules/
+
+# Additional large directories that might exist
+.pytest_cache/
+.coverage
+.mypy_cache/
+.tox/
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Model cache directories
+.cache/
+.huggingface/
+models/
+model_cache/
+
+# Any backup or temporary large files
+*.bak
+*.backup
+*.tmp
+*~
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# ChromaDB specific
+chroma.sqlite3

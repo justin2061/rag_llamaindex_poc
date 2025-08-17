@@ -12,10 +12,18 @@ from graph_rag_system import GraphRAGSystem
 from enhanced_rag_system import EnhancedRAGSystem
 from enhanced_pdf_downloader import EnhancedPDFDownloader
 
+# 條件導入 Elasticsearch RAG
+try:
+    from elasticsearch_rag_system import ElasticsearchRAGSystem
+    ELASTICSEARCH_RAG_AVAILABLE = True
+except ImportError:
+    ELASTICSEARCH_RAG_AVAILABLE = False
+
 # 導入配置
 from config import (
     GROQ_API_KEY, GEMINI_API_KEY, WEB_SOURCES, 
-    ENABLE_GRAPH_RAG, PAGE_TITLE, PAGE_ICON
+    ENABLE_GRAPH_RAG, ENABLE_ELASTICSEARCH, RAG_SYSTEM_TYPE,
+    PAGE_TITLE, PAGE_ICON
 )
 
 # 避免重複設置頁面配置
@@ -44,7 +52,16 @@ def init_chat_interface():
 def init_rag_system():
     """初始化 RAG 系統"""
     if 'rag_system' not in st.session_state:
-        if ENABLE_GRAPH_RAG:
+        # 根據配置選擇 RAG 系統
+        if RAG_SYSTEM_TYPE == "elasticsearch" and ENABLE_ELASTICSEARCH:
+            if ELASTICSEARCH_RAG_AVAILABLE:
+                st.session_state.rag_system = ElasticsearchRAGSystem()
+                st.session_state.system_type = "Elasticsearch RAG"
+            else:
+                st.warning("⚠️ Elasticsearch RAG 不可用，回退到 Enhanced RAG")
+                st.session_state.rag_system = EnhancedRAGSystem()
+                st.session_state.system_type = "Enhanced RAG"
+        elif RAG_SYSTEM_TYPE == "graph" or ENABLE_GRAPH_RAG:
             st.session_state.rag_system = GraphRAGSystem()
             st.session_state.system_type = "Graph RAG"
         else:
@@ -77,18 +94,18 @@ def render_home_page(layout: MainLayout):
         <h2>🏠 歡迎使用智能文檔問答助理</h2>
         <p>這是一個基於 Graph RAG 技術的先進問答系統，能夠理解文檔間的複雜關係並提供精確的答案。</p>
         
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; margin-top: 2rem;">
-            <div style="padding: 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 1rem; color: white;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 2rem;">
+            <div style="padding: 1.5rem; background-color: #f0f2f6; border-radius: 0.5rem; border: 1px solid #e0e0e0;">
                 <h3>🕸️ Graph RAG 技術</h3>
                 <p>自動建構知識圖譜，發現實體間的深層關係，提供更精確的答案。</p>
             </div>
             
-            <div style="padding: 1.5rem; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 1rem; color: white;">
+            <div style="padding: 1.5rem; background-color: #f0f2f6; border-radius: 0.5rem; border: 1px solid #e0e0e0;">
                 <h3>📄 多格式支援</h3>
                 <p>支援 PDF、Word、文字檔、Markdown 以及圖片 OCR，一站式處理各種文檔。</p>
             </div>
             
-            <div style="padding: 1.5rem; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 1rem; color: white;">
+            <div style="padding: 1.5rem; background-color: #f0f2f6; border-radius: 0.5rem; border: 1px solid #e0e0e0;">
                 <h3>💬 智能對話</h3>
                 <p>具備上下文記憶功能，能夠進行連續對話並理解問題之間的關聯。</p>
             </div>
@@ -178,7 +195,8 @@ def render_knowledge_base_page(layout: MainLayout, upload_zone: UploadZone, chat
                             index = st.session_state.rag_system.create_index(docs)
                             
                             if index:
-                                if ENABLE_GRAPH_RAG:
+                                # 根據實際系統類型設置查詢引擎
+                                if hasattr(st.session_state.rag_system, 'setup_graph_rag_retriever'):
                                     st.session_state.rag_system.setup_graph_rag_retriever()
                                 else:
                                     st.session_state.rag_system.setup_query_engine()
@@ -225,54 +243,55 @@ def render_knowledge_base_page(layout: MainLayout, upload_zone: UploadZone, chat
 
 def render_chat_interface(chat_interface: ChatInterface):
     """渲染聊天介面"""
-    # 顯示聊天歷史
-    messages = chat_interface.get_messages()
+    # 使用 ChatInterface 的內建渲染方法
+    user_input = chat_interface.render_chat_container()
     
-    for message in messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            if message.get("sources"):
-                with st.expander("📚 參考來源"):
-                    for source in message["sources"]:
-                        st.write(f"- {source}")
-    
-    # 用戶輸入
-    if user_input := st.chat_input("請輸入您的問題..."):
+    # 處理用戶輸入
+    if user_input:
         # 添加用戶訊息
         chat_interface.add_message("user", user_input)
         
-        # 顯示用戶訊息
-        with st.chat_message("user"):
-            st.markdown(user_input)
+        # 設定思考狀態
+        chat_interface.set_thinking(True)
         
         # 生成助手回應
-        with st.chat_message("assistant"):
-            with st.spinner("正在分析知識圖譜..."):
-                try:
-                    if ENABLE_GRAPH_RAG:
-                        response = st.session_state.rag_system.query_with_graph_context(user_input)
-                    else:
-                        response = st.session_state.rag_system.query_with_context(user_input)
-                    
-                    st.markdown(response)
-                    
-                    # 添加助手訊息
-                    sources = ["知識圖譜", "用戶文檔"]
-                    chat_interface.add_message("assistant", response, sources)
-                    
-                except Exception as e:
-                    error_msg = f"處理問題時發生錯誤: {str(e)}"
-                    st.error(error_msg)
-                    chat_interface.add_message("assistant", error_msg)
+        try:
+            # 根據實際系統類型選擇查詢方法
+            system_type = st.session_state.get('system_type', 'Unknown')
+            
+            if system_type == "Graph RAG" or hasattr(st.session_state.rag_system, 'query_with_graph_context'):
+                response = st.session_state.rag_system.query_with_graph_context(user_input)
+                sources = ["知識圖譜", "用戶文檔"]
+            elif system_type == "Elasticsearch RAG" or hasattr(st.session_state.rag_system, 'get_elasticsearch_statistics'):
+                response = st.session_state.rag_system.query_with_context(user_input)
+                sources = ["Elasticsearch 索引", "用戶文檔"]
+            else:
+                response = st.session_state.rag_system.query_with_context(user_input)
+                sources = ["向量索引", "用戶文檔"]
+            
+            # 添加助手訊息
+            chat_interface.add_message("assistant", response, sources)
+            
+        except Exception as e:
+            error_msg = f"處理問題時發生錯誤: {str(e)}"
+            chat_interface.add_message("assistant", error_msg)
+        
+        finally:
+            # 取消思考狀態
+            chat_interface.set_thinking(False)
+            st.rerun()
 
 def render_system_statistics():
     """渲染系統統計資訊"""
     if 'rag_system' in st.session_state and st.session_state.system_ready:
         try:
-            if ENABLE_GRAPH_RAG:
+            # 檢查實際使用的系統類型
+            system_type = st.session_state.get('system_type', 'Unknown')
+            
+            if system_type == "Graph RAG" or (hasattr(st.session_state.rag_system, 'get_graph_statistics')):
+                # Graph RAG 統計
                 stats = st.session_state.rag_system.get_graph_statistics()
                 
-                # 基本統計
                 if "graph_stats" in stats:
                     graph_stats = stats["graph_stats"]
                     
@@ -284,8 +303,26 @@ def render_system_statistics():
                     with col2:
                         st.metric("🔗 關係數", graph_stats.get("edges_count", 0))
                         st.metric("📈 圖密度", f"{graph_stats.get('density', 0):.3f}")
+                        
+            elif system_type == "Elasticsearch RAG" or (hasattr(st.session_state.rag_system, 'get_elasticsearch_statistics')):
+                # Elasticsearch RAG 統計
+                stats = st.session_state.rag_system.get_enhanced_statistics()
+                base_stats = stats.get("base_statistics", {})
+                es_stats = stats.get("elasticsearch_stats", {})
                 
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("📄 文檔數", base_stats.get("total_documents", 0))
+                    if es_stats.get("index_size_mb"):
+                        st.metric("💾 索引大小", f"{es_stats['index_size_mb']} MB")
+                
+                with col2:
+                    st.metric("🧩 向量數", base_stats.get("vectors_stored", 0))
+                    if es_stats.get("index_name"):
+                        st.info(f"📊 索引: {es_stats['index_name']}")
+                        
             else:
+                # 傳統 Enhanced RAG 統計
                 stats = st.session_state.rag_system.get_enhanced_statistics()
                 base_stats = stats.get("base_statistics", {})
                 
@@ -337,7 +374,8 @@ def render_demo_page(layout: MainLayout):
                             index = demo_system.create_index(documents)
                             
                             if index:
-                                if ENABLE_GRAPH_RAG:
+                                # 根據演示系統類型設置查詢引擎
+                                if hasattr(demo_system, 'setup_graph_rag_retriever'):
                                     demo_system.setup_graph_rag_retriever()
                                 else:
                                     demo_system.setup_query_engine()
@@ -390,7 +428,8 @@ def handle_demo_query(question: str):
     if st.session_state.demo_system:
         with st.spinner("正在分析茶葉知識..."):
             try:
-                if ENABLE_GRAPH_RAG:
+                # 根據演示系統類型選擇查詢方法
+                if hasattr(st.session_state.demo_system, 'query_with_graph_context'):
                     response = st.session_state.demo_system.query_with_graph_context(question)
                 else:
                     response = st.session_state.demo_system.query_with_context(question)
@@ -406,17 +445,35 @@ def render_demo_stats():
     """渲染演示統計"""
     if st.session_state.demo_ready and st.session_state.demo_system:
         try:
-            if ENABLE_GRAPH_RAG:
+            # 檢查演示系統類型
+            if hasattr(st.session_state.demo_system, 'get_graph_statistics'):
+                # Graph RAG 演示統計
                 stats = st.session_state.demo_system.get_graph_statistics()
                 if "graph_stats" in stats:
                     graph_stats = stats["graph_stats"]
                     st.metric("🕸️ 知識節點", graph_stats.get("nodes_count", 0))
                     st.metric("🔗 知識關係", graph_stats.get("edges_count", 0))
                     st.metric("📊 知識社群", graph_stats.get("communities_count", 0))
+                    
+            elif hasattr(st.session_state.demo_system, 'get_elasticsearch_statistics'):
+                # Elasticsearch RAG 演示統計
+                stats = st.session_state.demo_system.get_enhanced_statistics()
+                base_stats = stats.get("base_statistics", {})
+                es_stats = stats.get("elasticsearch_stats", {})
+                
+                st.metric("📄 文檔數量", base_stats.get("total_documents", 0))
+                st.metric("🧩 向量數量", base_stats.get("vectors_stored", 0))
+                if es_stats.get("index_size_mb"):
+                    st.metric("💾 索引大小", f"{es_stats['index_size_mb']} MB")
+                    
             else:
-                stats = st.session_state.demo_system.get_document_statistics()
-                st.metric("📄 文檔數量", stats.get("total_documents", 0))
-                st.metric("📖 總頁數", stats.get("total_pages", 0))
+                # 傳統 RAG 演示統計
+                if hasattr(st.session_state.demo_system, 'get_document_statistics'):
+                    stats = st.session_state.demo_system.get_document_statistics()
+                    st.metric("📄 文檔數量", stats.get("total_documents", 0))
+                    st.metric("📖 總頁數", stats.get("total_pages", 0))
+                else:
+                    st.info("統計資訊不可用")
                 
         except Exception as e:
             st.warning(f"無法獲取統計資訊: {str(e)}")

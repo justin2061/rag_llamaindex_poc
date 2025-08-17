@@ -67,3 +67,14 @@ os.makedirs(USER_UPLOADS_DIR, exist_ok=True)
 # Streamlit 設定
 PAGE_TITLE = "台灣茶葉知識問答系統"
 PAGE_ICON = "🍵"
+
+# Elasticsearch 設定
+ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "localhost")
+ELASTICSEARCH_PORT = int(os.getenv("ELASTICSEARCH_PORT", 9200))
+ELASTICSEARCH_INDEX_NAME = os.getenv("ELASTICSEARCH_INDEX_NAME", "rag_intelligent_assistant")
+ELASTICSEARCH_USERNAME = os.getenv("ELASTICSEARCH_USERNAME")
+ELASTICSEARCH_PASSWORD = os.getenv("ELASTICSEARCH_PASSWORD")
+ENABLE_ELASTICSEARCH = os.getenv("ENABLE_ELASTICSEARCH", "false").lower() == "true"
+
+# RAG 系統選擇
+RAG_SYSTEM_TYPE = os.getenv("RAG_SYSTEM_TYPE", "enhanced").lower()  # enhanced, graph, elasticsearch

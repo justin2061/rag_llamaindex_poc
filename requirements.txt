@@ -38,3 +38,14 @@ python-louvain>=0.16
 
 # Property Graph 相關 (使用內建的 SimpleGraphStore)
 # llama-index-graph-stores-simple>=0.1.3  # 此套件不存在，使用內建版本
+
+# Elasticsearch RAG 相關 (可選)
+elasticsearch>=8.0.0
+llama-index-vector-stores-elasticsearch>=0.2.0
+
+# 效能監控和基準測試
+psutil>=5.9.0
+matplotlib>=3.7.0
+
+# 記憶體優化
+# gc3pie  # 此套件可能有依賴問題，暫時註解掉

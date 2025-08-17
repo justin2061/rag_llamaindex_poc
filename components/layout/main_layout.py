@@ -22,171 +22,20 @@ class MainLayout:
         )
         
     def load_custom_css(self):
-        """載入自定義CSS樣式"""
+        """載入基本樣式（保持 Streamlit 原始外觀）"""
         st.markdown("""
         <style>
-        /* 主要樣式系統 - 使用系統配色 */
-        :root {
-            --primary-color: #4f46e5;
-            --secondary-color: #7c3aed;
-            --success-color: #059669;
-            --warning-color: #d97706;
-            --error-color: #dc2626;
-            --background-color: #ffffff;
-            --card-background: #ffffff;
-            --text-primary: #111827;
-            --text-secondary: #374151;
-            --border-color: #e5e7eb;
-            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-        
-        /* 隱藏Streamlit默認元素 */
+        /* 僅保留基本的隱藏元素樣式 */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
-        header {visibility: hidden;}
         .stDeployButton {display: none;}
         
-        /* 強制設定背景為白色 */
-        .stApp {
-            background-color: var(--background-color) !important;
-        }
-        
-        .main {
-            background-color: var(--background-color) !important;
-        }
-        
-        /* 主容器樣式 */
-        .main > div {
-            padding-top: 1rem;
-            max-width: 1400px;
-            margin: 0 auto;
-            background-color: var(--background-color) !important;
-        }
-        
-        /* 側邊欄樣式 */
-        .stSidebar {
-            background-color: var(--background-color) !important;
-        }
-        
-        .stSidebar .stSelectbox > div > div {
-            background-color: var(--card-background) !important;
-            color: var(--text-primary) !important;
-        }
-        
-        .stSidebar .stRadio > div {
-            background-color: var(--background-color) !important;
-        }
-        
-        .stSidebar .stRadio label {
-            color: var(--text-primary) !important;
-        }
-        
-        /* 卡片樣式 */
+        /* 簡單的卡片樣式，不改變顏色 */
         .custom-card {
-            background: var(--card-background);
-            border-radius: 1rem;
             padding: 1.5rem;
             margin: 1rem 0;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow);
-            transition: all 0.3s ease;
-        }
-        
-        .custom-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.1);
-        }
-        
-        /* 標題樣式 */
-        .page-title {
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            text-align: center;
-            margin-bottom: 0.5rem;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .page-subtitle {
-            font-size: 1.2rem;
-            color: var(--text-primary);
-            text-align: center;
-            margin-bottom: 2rem;
-            opacity: 0.8;
-        }
-        
-        /* 按鈕樣式 */
-        .stButton > button {
             border-radius: 0.5rem;
-            border: none;
-            padding: 0.5rem 1rem;
-            font-weight: 600;
-            transition: all 0.3s ease;
-        }
-        
-        .stButton > button:hover {
-            transform: translateY(-1px);
-            box-shadow: var(--shadow);
-        }
-        
-        /* 統計卡片樣式 */
-        .metric-card {
-            background: var(--card-background);
-            border-radius: 0.75rem;
-            padding: 1rem;
-            text-align: center;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow);
-        }
-        
-        /* 上傳區域樣式 */
-        .upload-zone {
-            border: 2px dashed var(--border-color);
-            border-radius: 1rem;
-            padding: 2rem;
-            text-align: center;
-            background: var(--background-color);
-            transition: all 0.3s ease;
-        }
-        
-        .upload-zone:hover {
-            border-color: var(--primary-color);
-            background: rgba(102, 126, 234, 0.05);
-        }
-        
-        /* 聊天訊息樣式 */
-        .chat-message {
-            padding: 1rem;
-            margin: 0.5rem 0;
-            border-radius: 1rem;
-            max-width: 80%;
-        }
-        
-        .chat-message.user {
-            background: var(--primary-color);
-            color: white;
-            margin-left: auto;
-        }
-        
-        .chat-message.assistant {
-            background: var(--card-background);
-            border: 1px solid var(--border-color);
-        }
-        
-        /* 響應式設計 */
-        @media (max-width: 768px) {
-            .main > div {
-                padding: 0.5rem;
-            }
-            
-            .page-title {
-                font-size: 2rem;
-            }
-            
-            .custom-card {
-                margin: 0.5rem 0;
-                padding: 1rem;
-            }
+            border: 1px solid #e0e0e0;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -195,8 +44,8 @@ class MainLayout:
         """渲染頁面標題"""
         st.markdown("""
         <div class="custom-card">
-            <h1 class="page-title">🤖 智能文檔問答助理</h1>
-            <p class="page-subtitle">
+            <h1 style="text-align: center; color: #262730;">🤖 智能文檔問答助理</h1>
+            <p style="text-align: center; color: #666; margin-bottom: 0;">
                 基於 Graph RAG 的多模態知識問答系統 • 支援文檔、圖片 OCR 與知識圖譜
             </p>
         </div>
@@ -214,8 +63,8 @@ class MainLayout:
                     menu_icon="list",
                     default_index=0,
                     styles={
-                        "container": {"padding": "0!important", "background-color": "#ffffff"},
-                        "icon": {"color": "#667eea", "font-size": "18px"}, 
+                        "container": {"padding": "0!important", "background-color": "transparent"},
+                        "icon": {"color": "#ff6347", "font-size": "18px"}, 
                         "nav-link": {
                             "font-size": "16px", 
                             "text-align": "left", 
@@ -225,7 +74,7 @@ class MainLayout:
                             "margin-bottom": "0.25rem"
                         },
                         "nav-link-selected": {
-                            "background-color": "#667eea",
+                            "background-color": "#ff6347",
                             "color": "white"
                         },
                     }

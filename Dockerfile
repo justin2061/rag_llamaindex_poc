@@ -39,27 +39,15 @@ RUN apt-get update && apt-get install -y \
 # 升級 pip 和安裝基礎工具
 RUN pip install --upgrade pip setuptools wheel
 
-# 複製 requirements 檔案
+# 複製 requirements 檔案並安裝 Python 依賴
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# 安裝 Python 依賴 (分階段安裝避免記憶體問題)
-RUN pip install --no-cache-dir numpy pandas
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir sentence-transformers
-RUN pip install --no-cache-dir streamlit streamlit-option-menu
-RUN pip install --no-cache-dir llama-index
-RUN pip install --no-cache-dir networkx pyvis python-louvain
-RUN pip install --no-cache-dir python-docx chromadb
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 複製應用程式代碼
-COPY . .
-
-# 創建資料目錄
+# 創建資料目錄和工作目錄結構
 RUN mkdir -p data/pdfs data/index data/user_uploads data/chroma_db
 
-# 複製組件目錄
-COPY components/ ./components/
+# 注意：應用程式代碼透過 volume 掛載，不在此複製
 
 # 暴露 Streamlit 預設端口
 EXPOSE 8501

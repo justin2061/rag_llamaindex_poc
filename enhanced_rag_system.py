@@ -349,11 +349,28 @@ class EnhancedRAGSystem(RAGSystem):
         try:
             storage_context = self.chroma_manager.get_storage_context()
             if storage_context:
-                from llama_index.core import load_index_from_storage
-                self.index = load_index_from_storage(storage_context)
-                self.setup_query_engine()
-                st.success("✅ 成功載入 ChromaDB 索引")
-                return True
+                try:
+                    from llama_index.core import load_index_from_storage
+                    self.index = load_index_from_storage(storage_context)
+                    self.setup_query_engine()
+                    st.success("✅ 成功載入 ChromaDB 索引")
+                    return True
+                except Exception as load_e:
+                    # 如果無法載入索引，但 ChromaDB 有資料，嘗試重建索引
+                    st.info("無法載入現有索引，但發現 ChromaDB 資料，嘗試重建索引...")
+                    try:
+                        # 直接從 ChromaDB 重建索引
+                        from llama_index.core import VectorStoreIndex
+                        self.index = VectorStoreIndex.from_vector_store(
+                            vector_store=self.chroma_manager.vector_store,
+                            storage_context=storage_context
+                        )
+                        self.setup_query_engine()
+                        st.success("✅ 成功重建 ChromaDB 索引")
+                        return True
+                    except Exception as rebuild_e:
+                        st.error(f"重建索引失敗: {str(rebuild_e)}")
+                        return False
             else:
                 st.warning("無法獲取 ChromaDB 儲存上下文")
                 return False

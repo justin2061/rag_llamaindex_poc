@@ -201,7 +201,9 @@ class ChatInterface:
     def _render_input_area(self) -> Optional[str]:
         """渲染輸入區域"""
         # 建議問題
-        self._render_suggested_questions()
+        suggested_question = self._render_suggested_questions()
+        if suggested_question:
+            return suggested_question
         
         # 輸入框和發送按鈕
         col1, col2 = st.columns([4, 1])
@@ -249,6 +251,8 @@ class ChatInterface:
                 with cols[i % 2]:
                     if st.button(f"💬 {suggestion}", key=f"suggestion_{i}", use_container_width=True):
                         return suggestion
+        
+        return None
     
     def add_message(self, role: str, content: str, sources: List[str] = None):
         """添加訊息到聊天歷史"""

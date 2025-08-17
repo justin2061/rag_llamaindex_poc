@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  # Elasticsearch 服務
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: rag-elasticsearch
+    environment:
+      # 基本設定
+      - node.name=rag-elasticsearch
+      - cluster.name=rag-cluster
+      - discovery.type=single-node
+      
+      # 記憶體設定 (調整為適合的大小)
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      
+      # 安全設定 (開發環境)
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      
+      # 效能調整
+      - bootstrap.memory_lock=true
+      - action.auto_create_index=true
+      
+      # 磁盤空間設定 (開發環境 - 放寬限制)
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - cluster.routing.allocation.disk.watermark.low=90%
+      - cluster.routing.allocation.disk.watermark.high=95%
+      - cluster.routing.allocation.disk.watermark.flood_stage=99%
+      
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    
+    volumes:
+      - ./elasticsearch_data:/usr/share/elasticsearch/data
+    
+    networks:
+      - rag-network
+    
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+  
+  # Kibana (可選 - 用於 Elasticsearch 管理和監控)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    container_name: rag-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - rag-network
+  
+  # RAG 應用程式 (使用 Elasticsearch)
+  graphrag-app-elasticsearch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: graphrag-intelligent-assistant-elasticsearch
+    ports:
+      - "8502:8501"  # 使用不同埠以避免衝突
+    volumes:
+      - .:/app
+      - /app/data  # 排除 data 目錄以節省建構時間
+      - ./data:/app/data
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      
+      # Elasticsearch 設定
+      - ENABLE_ELASTICSEARCH=true
+      - RAG_SYSTEM_TYPE=elasticsearch
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_INDEX_NAME=rag_intelligent_assistant
+      
+      # 其他設定
+      - PYTHONPATH=/app
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+networks:
+  rag-network:
+    driver: bridge

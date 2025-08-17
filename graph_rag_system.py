@@ -63,10 +63,128 @@ class GraphRAGExtractor(TransformComponent):
     def __call__(
         self, nodes: List[BaseNode], show_progress: bool = False, **kwargs: Any
     ) -> List[BaseNode]:
-        """同步提取接口"""
-        return asyncio.run(
-            self.acall(nodes, show_progress=show_progress, **kwargs)
-        )
+        """同步提取接口 - 兼容 Streamlit 環境"""
+        if not nodes:
+            return nodes
+            
+        try:
+            return self._safe_async_call(nodes, show_progress, **kwargs)
+        except Exception as e:
+            st.warning(f"圖譜提取過程中發生錯誤: {str(e)}")
+            st.info("將使用簡化的處理方式繼續...")
+            return self._fallback_sync_processing(nodes)
+    
+    def _safe_async_call(self, nodes: List[BaseNode], show_progress: bool = False, **kwargs: Any) -> List[BaseNode]:
+        """安全的異步調用處理"""
+        try:
+            # 方法 1: 檢查當前事件循環狀態
+            loop = asyncio.get_running_loop()
+            
+            # 在已有事件循環中，使用線程池執行
+            st.info("🔄 檢測到 Streamlit 環境，使用線程池處理異步操作...")
+            
+            import concurrent.futures
+            import threading
+            
+            def run_in_thread():
+                # 在新線程中創建獨立的事件循環
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    result = new_loop.run_until_complete(
+                        self.acall(nodes, show_progress=show_progress, **kwargs)
+                    )
+                    return result
+                finally:
+                    new_loop.close()
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(run_in_thread)
+                return future.result(timeout=300)  # 5分鐘超時
+                
+        except RuntimeError:
+            # 方法 2: 沒有運行的事件循環，直接使用 asyncio.run
+            st.info("🔄 使用標準異步處理...")
+            return asyncio.run(
+                self.acall(nodes, show_progress=show_progress, **kwargs)
+            )
+        except Exception as e:
+            st.warning(f"異步處理失敗: {str(e)}")
+            raise
+    
+    def _fallback_sync_processing(self, nodes: List[BaseNode]) -> List[BaseNode]:
+        """備用的同步處理方式"""
+        st.info("🔄 使用同步備用方案處理知識圖譜...")
+        
+        processed_nodes = []
+        for i, node in enumerate(nodes):
+            try:
+                # 顯示進度
+                progress = (i + 1) / len(nodes)
+                st.progress(progress, text=f"處理節點 {i+1}/{len(nodes)}")
+                
+                # 同步處理單個節點
+                processed_node = self._sync_extract_single_node(node)
+                processed_nodes.append(processed_node)
+                
+            except Exception as e:
+                st.warning(f"處理節點 {i+1} 時發生錯誤: {str(e)}")
+                processed_nodes.append(node)  # 保留原節點
+        
+        return processed_nodes
+    
+    def _sync_extract_single_node(self, node: BaseNode) -> BaseNode:
+        """同步提取單個節點的知識圖譜"""
+        try:
+            text = node.get_content(metadata_mode="llm")
+            
+            # 同步調用 LLM
+            llm_response = self.llm.predict(
+                self.extract_prompt,
+                text=text,
+                max_knowledge_triplets=self.max_paths_per_chunk,
+            )
+            
+            # 解析結果
+            entities, entities_relationship = self.parse_fn(llm_response)
+            
+            # 處理實體和關係（與異步版本相同的邏輯）
+            existing_nodes = node.metadata.pop(KG_NODES_KEY, [])
+            existing_relations = node.metadata.pop(KG_RELATIONS_KEY, [])
+            
+            # 處理實體
+            metadata = node.metadata.copy()
+            for entity, entity_type, description in entities:
+                metadata["entity_description"] = description
+                entity_node = EntityNode(
+                    name=entity, label=entity_type, properties=metadata
+                )
+                existing_nodes.append(entity_node)
+            
+            # 處理關係
+            metadata = node.metadata.copy()
+            for triple in entities_relationship:
+                subj, rel, obj, description = triple
+                subj_node = EntityNode(name=subj, properties=metadata)
+                obj_node = EntityNode(name=obj, properties=metadata)
+                metadata["relationship_description"] = description
+                rel_node = Relation(
+                    label=rel,
+                    source_id=subj_node.id,
+                    target_id=obj_node.id,
+                    properties=metadata,
+                )
+                
+                existing_nodes.extend([subj_node, obj_node])
+                existing_relations.append(rel_node)
+            
+            node.metadata[KG_NODES_KEY] = existing_nodes
+            node.metadata[KG_RELATIONS_KEY] = existing_relations
+            return node
+            
+        except Exception as e:
+            st.warning(f"同步處理節點失敗: {str(e)}")
+            return node
     
     async def _aextract(self, node: BaseNode) -> BaseNode:
         """異步提取單個節點的三元組"""
@@ -316,27 +434,136 @@ class GraphRAGSystem(EnhancedRAGSystem):
         nx_graph = nx.Graph()
         
         try:
-            # 獲取圖資料
-            if hasattr(self.property_graph_index, 'property_graph_store'):
+            # 診斷檢查
+            if not self.property_graph_index:
+                st.warning("🚨 property_graph_index 未初始化")
+                return nx_graph
+            
+            # 檢查圖存儲
+            if not hasattr(self.property_graph_index, 'property_graph_store'):
+                st.warning("🚨 找不到 property_graph_store")
+                
+                # 檢查是否有其他方式獲取圖數據
+                if hasattr(self.property_graph_index, '_graph_store'):
+                    st.info("找到 _graph_store 屬性，嘗試使用...")
+                    graph_store = self.property_graph_index._graph_store
+                elif hasattr(self.property_graph_index, 'storage_context') and hasattr(self.property_graph_index.storage_context, 'graph_store'):
+                    st.info("從 storage_context 獲取 graph_store...")
+                    graph_store = self.property_graph_index.storage_context.graph_store
+                else:
+                    st.info("嘗試替代方法 - 從索引中獲取節點數據")
+                    graph_store = None
+                
+                # 如果找到了替代的 graph_store，跳過備用方法
+                if graph_store:
+                    # 使用找到的 graph_store 繼續正常流程
+                    st.info(f"✅ 使用替代 graph_store: {type(graph_store).__name__}")
+                    # 跳轉到統一的圖存儲處理邏輯
+                    return self._process_graph_store(graph_store, nx_graph)
+                else:
+                    # 使用備用方法從 docstore 提取數據
+                    try:
+                        # 嘗試從向量索引獲取文檔節點
+                        if hasattr(self.property_graph_index, 'docstore'):
+                            docs = self.property_graph_index.docstore.docs
+                            st.info(f"📄 從 docstore 找到 {len(docs)} 個文檔")
+                            
+                            # 從文檔元數據中提取實體和關係
+                            total_nodes = 0
+                            total_relations = 0
+                            
+                            for doc_id, doc in docs.items():
+                                # 檢查節點是否有知識圖譜數據
+                                if hasattr(doc, 'metadata'):
+                                    nodes = doc.metadata.get(KG_NODES_KEY, [])
+                                    relations = doc.metadata.get(KG_RELATIONS_KEY, [])
+                                    
+                                    st.info(f"文檔 {doc_id}: 找到 {len(nodes)} 個節點, {len(relations)} 個關係")
+                                    total_nodes += len(nodes)
+                                    total_relations += len(relations)
+                                    
+                                    # 添加實體節點
+                                    for node in nodes:
+                                        if hasattr(node, 'name'):
+                                            nx_graph.add_node(node.name, 
+                                                            label=getattr(node, 'label', 'Entity'),
+                                                            **getattr(node, 'properties', {}))
+                                        else:
+                                            st.warning(f"節點缺少名稱屬性: {type(node)}")
+                                    
+                                    # 添加關係邊
+                                    for rel in relations:
+                                        if hasattr(rel, 'source_id') and hasattr(rel, 'target_id'):
+                                            nx_graph.add_edge(
+                                                rel.source_id,
+                                                rel.target_id,
+                                                relationship=getattr(rel, 'label', 'related'),
+                                                **getattr(rel, 'properties', {})
+                                            )
+                                        else:
+                                            st.warning(f"關係缺少 source_id 或 target_id: {type(rel)}")
+                            
+                            st.info(f"📊 總計發現: {total_nodes} 個節點, {total_relations} 個關係")
+                            st.info(f"📊 實際添加: {len(nx_graph.nodes())} 個節點，{len(nx_graph.edges())} 個關係")
+                        
+                    except Exception as fallback_e:
+                        st.warning(f"替代方法也失敗: {str(fallback_e)}")
+                    
+                    return nx_graph
+            else:
+                # 正常路徑：有 property_graph_store
                 graph_store = self.property_graph_index.property_graph_store
+                st.info(f"✅ 使用標準 property_graph_store: {type(graph_store).__name__}")
+                # 使用統一的圖存儲處理邏輯
+                return self._process_graph_store(graph_store, nx_graph)
                 
-                # 添加節點
-                if hasattr(graph_store, 'get_all_nodes'):
-                    for node in graph_store.get_all_nodes():
+        except Exception as e:
+            st.error(f"NetworkX 圖建立失敗: {str(e)}")
+            import traceback
+            st.error(f"詳細錯誤: {traceback.format_exc()}")
+        
+        return nx_graph
+    
+    def _process_graph_store(self, graph_store, nx_graph: nx.Graph) -> nx.Graph:
+        """統一處理圖存儲的節點和邊"""
+        try:
+            # 添加節點
+            nodes_added = 0
+            if hasattr(graph_store, 'get_all_nodes'):
+                try:
+                    all_nodes = graph_store.get_all_nodes()
+                    for node in all_nodes:
                         nx_graph.add_node(node.name, **node.properties)
-                
-                # 添加邊
-                if hasattr(graph_store, 'get_all_relationships'):
-                    for rel in graph_store.get_all_relationships():
+                        nodes_added += 1
+                    st.info(f"✅ 成功添加 {nodes_added} 個節點")
+                except Exception as nodes_e:
+                    st.warning(f"添加節點失敗: {str(nodes_e)}")
+            else:
+                st.warning("🚨 graph_store 沒有 get_all_nodes 方法")
+            
+            # 添加邊
+            edges_added = 0
+            if hasattr(graph_store, 'get_all_relationships'):
+                try:
+                    all_relationships = graph_store.get_all_relationships()
+                    for rel in all_relationships:
                         nx_graph.add_edge(
                             rel.source_id, 
                             rel.target_id,
                             relationship=rel.label,
                             **rel.properties
                         )
+                        edges_added += 1
+                    st.info(f"✅ 成功添加 {edges_added} 個關係")
+                except Exception as edges_e:
+                    st.warning(f"添加邊失敗: {str(edges_e)}")
+            else:
+                st.warning("🚨 graph_store 沒有 get_all_relationships 方法")
                         
         except Exception as e:
-            st.warning(f"NetworkX 圖建立失敗: {str(e)}")
+            st.error(f"圖存儲處理失敗: {str(e)}")
+            import traceback
+            st.error(f"詳細錯誤: {traceback.format_exc()}")
         
         return nx_graph
     
@@ -383,9 +610,27 @@ class GraphRAGSystem(EnhancedRAGSystem):
     def visualize_knowledge_graph(self, max_nodes: int = 100) -> str:
         """可視化知識圖譜"""
         try:
+            # 診斷檢查
+            if not self.property_graph_index:
+                st.error("❌ 知識圖譜索引未初始化。請先上傳文檔並建立圖譜。")
+                return None
+            
+            st.info("🔍 正在檢查知識圖譜數據...")
             nx_graph = self._create_networkx_graph()
             
-            if len(nx_graph.nodes()) == 0:
+            # 詳細的診斷信息
+            nodes_count = len(nx_graph.nodes())
+            edges_count = len(nx_graph.edges())
+            
+            st.info(f"📊 發現 {nodes_count} 個節點，{edges_count} 個關係")
+            
+            if nodes_count == 0:
+                st.warning("⚠️ 知識圖譜中沒有節點數據。可能的原因：")
+                st.markdown("""
+                - 文檔沒有成功提取實體
+                - Graph RAG 處理過程中出現錯誤
+                - 需要重新處理文檔
+                """)
                 return None
             
             # 限制節點數量以避免過於複雜

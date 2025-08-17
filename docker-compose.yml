@@ -9,9 +9,11 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./data:/app/data           # 掛載資料目錄 (持久化)
+      # 掛載整個應用程式代碼 (開發模式)
+      - .:/app                     # 掛載整個專案目錄
+      - /app/data                  # 排除 data 目錄 (使用容器內版本)
+      - ./data:/app/data           # 重新掛載 data 目錄 (持久化)
       - ./.env:/app/.env           # 掛載環境變數檔案
-      - ./components:/app/components # 掛載 UI 組件
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}

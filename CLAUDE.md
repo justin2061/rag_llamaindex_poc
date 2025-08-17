@@ -323,7 +323,7 @@ Community Context → LLM Reasoning → Response
 ├── docker-deploy.sh/.bat        # Deployment scripts
 │
 └── # Dependencies & Documentation
-    ├── requirements.txt         # Python dependencies
+    ��── requirements.txt         # Python dependencies
     ├── CLAUDE.md                # Development guide
     ├── README.md                # Project overview
     ├── GEMINI.md                # Gemini API guide
@@ -337,6 +337,10 @@ Community Context → LLM Reasoning → Response
 ```bash
 # Required
 GROQ_API_KEY=your_groq_api_key
+
+# Embedding Provider ('jina' or 'local')
+EMBEDDING_PROVIDER=jina
+JINA_API_KEY=your_jina_api_key # Required if EMBEDDING_PROVIDER is 'jina'
 
 # Optional
 GEMINI_API_KEY=your_gemini_api_key  # For OCR functionality

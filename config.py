@@ -6,7 +6,11 @@ load_dotenv()
 
 # API 設定
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-JINA_API_KEY = os.getenv("JINA_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # 可選，用於 OCR 功能
+JINA_API_KEY = os.getenv("JINA_API_KEY")      # 現在是必需的
+
+# 模型設定
+LLM_MODEL = "llama-3.3-70b-versatile"  # Groq 模型
 
 # PDF 來源網址
 PDF_SOURCES = {

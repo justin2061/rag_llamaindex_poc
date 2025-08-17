@@ -7,7 +7,7 @@ from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.core.storage.index_store import SimpleIndexStore
 from llama_index.core.vector_stores import SimpleVectorStore
 from llama_index.llms.groq import Groq
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.embeddings.jina import JinaEmbedding
 from llama_index.core.node_parser import SimpleNodeParser
 
 # 導入新的功能模組
@@ -34,7 +34,9 @@ except ImportError:
         except ImportError:
             st.error("沒有找到可用的PDF處理庫，請安裝 PyMuPDF、PyPDF2 或 pdfplumber")
 
-from config import GROQ_API_KEY, EMBEDDING_MODEL, LLM_MODEL, INDEX_DIR
+from config import (
+    GROQ_API_KEY, LLM_MODEL, INDEX_DIR, JINA_API_KEY
+)
 
 def load_pdf_with_pypdf2(pdf_path: str) -> List[Document]:
     """使用PyPDF2載入PDF"""
@@ -91,8 +93,16 @@ class RAGSystem:
             st.error("請設定GROQ_API_KEY環境變數")
             return
         
-        # 設定嵌入模型
-        embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
+        # 設定 Jina Embedding 模型
+        if JINA_API_KEY:
+            st.info("🚀 使用 Jina Embedding API")
+            embed_model = JinaEmbedding(
+                api_key=JINA_API_KEY,
+                model="jina-embeddings-v2-base-zh" # 使用中文模型
+            )
+        else:
+            st.error("❌ Jina Embedding 需要設定 JINA_API_KEY，請在 .env 中設定。")
+            return
         
         # 設定全域配置
         Settings.llm = llm

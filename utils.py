@@ -5,6 +5,33 @@ import re
 from typing import List, Dict
 import streamlit as st
 
+# RAG System Imports - for factory function
+from config import RAG_SYSTEM_TYPE
+from enhanced_rag_system import EnhancedRAGSystem
+from graph_rag_system import GraphRAGSystem
+from elasticsearch_rag_system import ElasticsearchRAGSystem
+
+def get_rag_system():
+    """
+    工廠函式：根據設定回傳對應的 RAG 系統實例。
+    """
+    st.info(f"🚀 正在根據設定 '{RAG_SYSTEM_TYPE}' 初始化 RAG 系統...")
+    
+    if RAG_SYSTEM_TYPE == "graph":
+        st.session_state.rag_system_type = "Graph RAG"
+        return GraphRAGSystem()
+    elif RAG_SYSTEM_TYPE == "elasticsearch":
+        st.session_state.rag_system_type = "Elasticsearch RAG"
+        return ElasticsearchRAGSystem()
+    elif RAG_SYSTEM_TYPE == "enhanced":
+        st.session_state.rag_system_type = "Enhanced RAG"
+        return EnhancedRAGSystem()
+    else:
+        # 預設或錯誤情況
+        st.warning(f"⚠️ 設定的 RAG_SYSTEM_TYPE ('{RAG_SYSTEM_TYPE}') 無效，將使用預設的 'enhanced' 系統。")
+        st.session_state.rag_system_type = "Enhanced RAG (Default)"
+        return EnhancedRAGSystem()
+
 def extract_pdf_links_from_page(url: str) -> List[str]:
     """從網頁中提取PDF連結"""
     try:
@@ -145,4 +172,5 @@ def create_progress_callback():
         progress_bar.progress(progress)
         status_text.text(f"{message} ({current}/{total})")
     
-    return update_progress 
+    return update_progress
+ 

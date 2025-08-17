@@ -14,7 +14,7 @@ from llama_index.core.postprocessor import SimilarityPostprocessor
 # Elasticsearch integration
 try:
     from elasticsearch import Elasticsearch
-    from custom_elasticsearch_store import CustomElasticsearchStore
+    from llama_index.vector_stores.elasticsearch import ElasticsearchStore
     ELASTICSEARCH_AVAILABLE = True
 except ImportError:
     ELASTICSEARCH_AVAILABLE = False
@@ -72,7 +72,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             'username': ELASTICSEARCH_USERNAME,
             'password': ELASTICSEARCH_PASSWORD,
             'index_name': ELASTICSEARCH_INDEX_NAME or 'rag_intelligent_assistant',
-            'dimension': 384,  # all-MiniLM-L6-v2 embedding dimension
+            'dimension': 1024,  # jina-embeddings-v3-base-en embedding dimension
             'similarity': 'cosine',
             'text_field': 'content',
             'vector_field': 'embedding',
@@ -119,17 +119,17 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         try:
             config = self.elasticsearch_config
             
-            # 索引映射設定 (使用標準分析器，兼容性更好)
+            # 索引映射設定 (使用中文分析器)
             index_mapping = {
                 "settings": {
                     "number_of_shards": 1,
                     "number_of_replicas": 0,
                     "analysis": {
                         "analyzer": {
-                            "text_analyzer": {
+                            "chinese_analyzer": {
                                 "type": "custom",
                                 "tokenizer": "standard",
-                                "filter": ["lowercase", "stop", "cjk_width"]
+                                "filter": ["lowercase", "cjk_width", "cjk_bigram"]
                             }
                         }
                     }
@@ -138,8 +138,8 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     "properties": {
                         config['text_field']: {
                             "type": "text",
-                            "analyzer": "text_analyzer",
-                            "search_analyzer": "text_analyzer"
+                            "analyzer": "chinese_analyzer",
+                            "search_analyzer": "chinese_analyzer"
                         },
                         config['vector_field']: {
                             "type": "dense_vector",
@@ -188,15 +188,15 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
     def _setup_elasticsearch_store(self) -> bool:
         """設置 Elasticsearch 向量存儲"""
         try:
-            self.elasticsearch_store = CustomElasticsearchStore(
+            self.elasticsearch_store = ElasticsearchStore(
                 es_client=self.elasticsearch_client,
                 index_name=self.index_name,
-                text_field=self.elasticsearch_config['text_field'],
                 vector_field=self.elasticsearch_config['vector_field'],
+                text_field=self.elasticsearch_config['text_field'],
                 metadata_field='metadata'
             )
             
-            st.success("✅ Elasticsearch 向量存儲設置完成 (使用自定義實現)")
+            st.success("✅ Elasticsearch 向量存儲設置完成 (使用官方實現)")
             return True
             
         except Exception as e:
@@ -207,103 +207,44 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         """創建 Elasticsearch 索引"""
         with st.spinner("正在建立 Elasticsearch 索引..."):
             try:
-                # 設置 Elasticsearch
-                if not self._setup_elasticsearch_client():
-                    st.error("❌ Elasticsearch 客戶端設置失敗")
+                # 1. 確保所有基礎設定都已就緒
+                if not all([
+                    self._setup_elasticsearch_client(),
+                    self._create_elasticsearch_index(),
+                    self._setup_elasticsearch_store()
+                ]):
+                    st.error("❌ Elasticsearch 基礎設定失敗，無法建立索引。")
                     return None
-                
-                if not self._create_elasticsearch_index():
-                    st.error("❌ Elasticsearch 索引創建失敗")  
-                    return None
-                
-                if not self._setup_elasticsearch_store():
-                    st.error("❌ Elasticsearch 向量存儲設置失敗")
-                    return None
-                
-                # 初始化模型確保嵌入模型可用
+
+                # 2. 確保模型已初始化
                 self._ensure_models_initialized()
-                
-                # 建立存儲上下文
-                storage_context = StorageContext.from_defaults(
-                    vector_store=self.elasticsearch_store
-                )
-                
-                # 重置記憶體統計
-                self.memory_stats['documents_processed'] = 0
-                self.memory_stats['vectors_stored'] = 0
-                
-                st.info(f"📊 準備處理 {len(documents)} 個文檔")
-                
-                # 為文檔添加時間戳
-                for i, doc in enumerate(documents):
+
+                # 3. 確保所有文件都有唯一的 ID 和時間戳
+                import uuid
+                for doc in documents:
+                    if not hasattr(doc, 'id_') or not doc.id_:
+                        doc.id_ = str(uuid.uuid4())
                     if 'timestamp' not in doc.metadata:
                         doc.metadata['timestamp'] = datetime.now().isoformat()
-                    if not hasattr(doc, 'id_') or not doc.id_:
-                        doc.id_ = f"doc_{i}_{datetime.now().timestamp()}"
-                
-                # 使用經過驗證的方法創建索引
-                st.info("🔄 使用 VectorStoreIndex.from_documents 創建索引...")
-                
-                try:
-                    self.index = VectorStoreIndex.from_documents(
-                        documents,
-                        storage_context=storage_context,
-                        embed_model=self.embedding_model,
-                        show_progress=True
-                    )
-                    
-                    # 更新統計
-                    self.memory_stats['documents_processed'] = len(documents)
-                    self.memory_stats['vectors_stored'] = len(documents)
-                    
-                    st.success(f"✅ Elasticsearch 索引建立完成！處理了 {len(documents)} 個文檔")
-                    return self.index
-                    
-                except Exception as index_error:
-                    st.warning(f"⚠️ from_documents 方法失敗: {index_error}")
-                    st.info("🔄 嘗試替代方法...")
-                    
-                    # 替代方法：創建空索引然後逐個添加文檔
-                    try:
-                        self.index = VectorStoreIndex(
-                            nodes=[],
-                            storage_context=storage_context,
-                            embed_model=self.embedding_model
-                        )
-                        
-                        progress_bar = st.progress(0)
-                        
-                        for i, doc in enumerate(documents):
-                            try:
-                                self.index.insert(doc)
-                                self.memory_stats['documents_processed'] += 1
-                                self.memory_stats['vectors_stored'] += 1
-                                
-                                # 更新進度條
-                                progress = (i + 1) / len(documents)
-                                progress_bar.progress(progress)
-                                
-                            except Exception as doc_error:
-                                st.warning(f"⚠️ 文檔 {i+1} 插入失敗: {doc_error}")
-                        
-                        progress_bar.progress(1.0)
-                        
-                        processed_count = self.memory_stats['documents_processed']
-                        if processed_count > 0:
-                            st.success(f"✅ 替代方法成功！處理了 {processed_count} 個文檔")
-                            return self.index
-                        else:
-                            st.error("❌ 沒有文檔成功索引")
-                            return None
-                            
-                    except Exception as alt_error:
-                        st.error(f"❌ 替代方法也失敗: {alt_error}")
-                        return None
-                
+
+                # 4. 建立存儲上下文
+                storage_context = StorageContext.from_defaults(vector_store=self.elasticsearch_store)
+
+                # 5. 使用 LlamaIndex 的標準方法建立索引
+                self.index = VectorStoreIndex.from_documents(
+                    documents,
+                    storage_context=storage_context,
+                    embed_model=self.embedding_model,
+                    show_progress=True
+                )
+
+                st.success(f"✅ Elasticsearch 索引建立完成！處理了 {len(documents)} 個文檔。")
+                return self.index
+
             except Exception as e:
                 st.error(f"❌ Elasticsearch 索引建立失敗: {str(e)}")
                 import traceback
-                st.error(f"錯誤詳情: {traceback.format_exc()}")
+                st.error(f"詳細錯誤: {traceback.format_exc()}")
                 return None
     
     def setup_query_engine(self):

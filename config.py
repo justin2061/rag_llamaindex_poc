@@ -6,6 +6,7 @@ load_dotenv()
 
 # API 設定
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+JINA_API_KEY = os.getenv("JINA_API_KEY")
 
 # PDF 來源網址
 PDF_SOURCES = {
@@ -26,7 +27,8 @@ WEB_SOURCES = [
 ]
 
 # 模型設定
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "jina").lower() # 'jina' or 'local'
+EMBEDDING_MODEL = "jinaai/jina-embeddings-v3-base-en"
 LLM_MODEL = "llama-3.3-70b-versatile"  # Groq 模型
 
 # 檔案路徑設定
@@ -78,3 +80,6 @@ ENABLE_ELASTICSEARCH = os.getenv("ENABLE_ELASTICSEARCH", "false").lower() == "tr
 
 # RAG 系統選擇
 RAG_SYSTEM_TYPE = os.getenv("RAG_SYSTEM_TYPE", "enhanced").lower()  # enhanced, graph, elasticsearch
+
+# 應用程式模式
+APP_MODE = os.getenv("APP_MODE", "full").lower() # full, quick, ultra_fast

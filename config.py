@@ -7,7 +7,7 @@ load_dotenv()
 # API 設定
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # 可選，用於 OCR 功能
-JINA_API_KEY = os.getenv("JINA_API_KEY")      # 現在是必需的
+JINA_API_KEY = os.getenv("JINA_API_KEY")      # 可選，用於優化 embedding 效果
 
 # 模型設定
 LLM_MODEL = "llama-3.3-70b-versatile"  # Groq 模型
@@ -77,10 +77,23 @@ PAGE_ICON = "🍵"
 # Elasticsearch 設定
 ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "localhost")
 ELASTICSEARCH_PORT = int(os.getenv("ELASTICSEARCH_PORT", 9200))
+ELASTICSEARCH_SCHEME = os.getenv("ELASTICSEARCH_SCHEME", "http")  # http or https
 ELASTICSEARCH_INDEX_NAME = os.getenv("ELASTICSEARCH_INDEX_NAME", "rag_intelligent_assistant")
 ELASTICSEARCH_USERNAME = os.getenv("ELASTICSEARCH_USERNAME")
 ELASTICSEARCH_PASSWORD = os.getenv("ELASTICSEARCH_PASSWORD")
-ENABLE_ELASTICSEARCH = os.getenv("ENABLE_ELASTICSEARCH", "false").lower() == "true"
+ELASTICSEARCH_TIMEOUT = int(os.getenv("ELASTICSEARCH_TIMEOUT", 30))
+ELASTICSEARCH_MAX_RETRIES = int(os.getenv("ELASTICSEARCH_MAX_RETRIES", 3))
+ELASTICSEARCH_VERIFY_CERTS = os.getenv("ELASTICSEARCH_VERIFY_CERTS", "false").lower() == "true"
+
+# Elasticsearch 索引設定
+ELASTICSEARCH_SHARDS = int(os.getenv("ELASTICSEARCH_SHARDS", 1))
+ELASTICSEARCH_REPLICAS = int(os.getenv("ELASTICSEARCH_REPLICAS", 0))
+ELASTICSEARCH_VECTOR_DIMENSION = int(os.getenv("ELASTICSEARCH_VECTOR_DIMENSION", 1024))  # Jina v3
+ELASTICSEARCH_SIMILARITY = os.getenv("ELASTICSEARCH_SIMILARITY", "cosine")
+
+# 向量存儲優先順序設定
+ENABLE_ELASTICSEARCH = os.getenv("ENABLE_ELASTICSEARCH", "true").lower() == "true"  # 預設啟用
+VECTOR_STORE_PRIORITY = os.getenv("VECTOR_STORE_PRIORITY", "elasticsearch,simple").split(",")  # 優先順序
 
 # RAG 系統選擇
 RAG_SYSTEM_TYPE = os.getenv("RAG_SYSTEM_TYPE", "enhanced").lower()  # enhanced, graph, elasticsearch

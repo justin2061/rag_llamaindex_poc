@@ -21,7 +21,7 @@ def check_requirements():
         'pyvis',
         'streamlit-option-menu',
         'python-docx',
-        'chromadb'
+        # 'chromadb'  # 不再必需，已改用 Elasticsearch + SimpleVectorStore
     ]
     
     missing_packages = []

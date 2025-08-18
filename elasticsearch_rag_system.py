@@ -24,8 +24,11 @@ except ImportError:
 from enhanced_rag_system import EnhancedRAGSystem
 from config import (
     GROQ_API_KEY, EMBEDDING_MODEL, LLM_MODEL, 
-    ELASTICSEARCH_HOST, ELASTICSEARCH_INDEX_NAME,
-    ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD
+    ELASTICSEARCH_HOST, ELASTICSEARCH_PORT, ELASTICSEARCH_SCHEME,
+    ELASTICSEARCH_INDEX_NAME, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD,
+    ELASTICSEARCH_TIMEOUT, ELASTICSEARCH_MAX_RETRIES, ELASTICSEARCH_VERIFY_CERTS,
+    ELASTICSEARCH_SHARDS, ELASTICSEARCH_REPLICAS, ELASTICSEARCH_VECTOR_DIMENSION,
+    ELASTICSEARCH_SIMILARITY
 )
 
 class ElasticsearchRAGSystem(EnhancedRAGSystem):
@@ -33,7 +36,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
     
     def __init__(self, elasticsearch_config: Optional[Dict] = None):
         """初始化 Elasticsearch RAG 系統"""
-        super().__init__(use_chroma=False)  # 不使用 ChromaDB
+        super().__init__(use_elasticsearch=False, use_chroma=False)  # ES RAG系統自己管理Elasticsearch
         
         self.elasticsearch_config = elasticsearch_config or self._get_default_config()
         self.elasticsearch_client = None
@@ -67,16 +70,21 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         """獲取預設 Elasticsearch 配置"""
         return {
             'host': ELASTICSEARCH_HOST or 'localhost',
-            'port': 9200,
-            'scheme': 'http',
+            'port': ELASTICSEARCH_PORT or 9200,
+            'scheme': ELASTICSEARCH_SCHEME or 'http',
             'username': ELASTICSEARCH_USERNAME,
             'password': ELASTICSEARCH_PASSWORD,
+            'timeout': ELASTICSEARCH_TIMEOUT or 30,
+            'max_retries': ELASTICSEARCH_MAX_RETRIES or 3,
+            'verify_certs': ELASTICSEARCH_VERIFY_CERTS,
             'index_name': ELASTICSEARCH_INDEX_NAME or 'rag_intelligent_assistant',
-            'dimension': 1024,  # jina-embeddings-v3-base-en embedding dimension
-            'similarity': 'cosine',
+            'shards': ELASTICSEARCH_SHARDS or 1,
+            'replicas': ELASTICSEARCH_REPLICAS or 0,
+            'dimension': ELASTICSEARCH_VECTOR_DIMENSION or 1024,
+            'similarity': ELASTICSEARCH_SIMILARITY or 'cosine',
             'text_field': 'content',
             'vector_field': 'embedding',
-            'metadata_fields': ['source', 'page', 'chunk_id', 'timestamp']
+            'metadata_fields': ['source', 'page', 'chunk_id', 'timestamp', 'file_type', 'file_size']
         }
     
     def _setup_elasticsearch_client(self) -> bool:
@@ -91,9 +99,10 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             # 連接配置
             es_config = {
                 'hosts': [f"{config['scheme']}://{config['host']}:{config['port']}"],
-                'timeout': 30,
-                'max_retries': 3,
-                'retry_on_timeout': True
+                'timeout': config['timeout'],
+                'max_retries': config['max_retries'],
+                'retry_on_timeout': True,
+                'verify_certs': config['verify_certs']
             }
             
             # 認證配置
@@ -122,8 +131,8 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             # 索引映射設定 (使用中文分析器)
             index_mapping = {
                 "settings": {
-                    "number_of_shards": 1,
-                    "number_of_replicas": 0,
+                    "number_of_shards": config['shards'],
+                    "number_of_replicas": config['replicas'],
                     "analysis": {
                         "analyzer": {
                             "chinese_analyzer": {

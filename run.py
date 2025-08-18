@@ -38,7 +38,7 @@ def check_env_file():
     print("✅ 環境變數設定正確")
     return True
 
-def run_app(app_name="app.py"):
+def run_app(app_name="main_app.py"):
     """啟動應用程式"""
     if not check_requirements():
         sys.exit(1)
@@ -62,6 +62,6 @@ def run_app(app_name="app.py"):
 if __name__ == "__main__":
     # 選擇要啟動的應用程式
     if len(sys.argv) > 1 and sys.argv[1] == "enhanced":
-        run_app("enhanced_app.py")
+        run_app("enhanced_ui_app.py")
     else:
-        run_app("app.py") 
+        run_app("main_app.py") 

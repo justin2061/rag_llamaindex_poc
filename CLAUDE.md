@@ -23,19 +23,8 @@ streamlit run main_app.py
 # or
 python run.py
 
-# Enhanced version with all features
-streamlit run enhanced_app.py
-# or
-python run.py enhanced
-
-# Basic version
-streamlit run app.py
-
-# Quick start for testing
-python quick_start.py
-
-# Ultra fast start (minimal setup)
-python ultra_fast_start.py
+# Enhanced UI version
+streamlit run enhanced_ui_app.py
 
 # Graph RAG specific version
 python run_graphrag.py
@@ -45,6 +34,15 @@ python run_graphrag.py
 ```bash
 # Run PDF discovery test
 python test_pdf_discovery.py
+
+# Test Elasticsearch RAG (various modes)
+python test_elasticsearch_rag.py
+python test_es_no_streamlit.py
+python test_simplified_es.py
+
+# Test upload workflows
+python test_upload_workflow.py
+python test_web_upload_simulation.py
 
 # Benchmark startup performance
 python benchmark_startup.py
@@ -84,8 +82,7 @@ This is an **advanced RAG (Retrieval-Augmented Generation) system** built with *
 ### Core Architecture
 - **Frontend**: Modular Streamlit UI with component-based architecture
   - `main_app.py`: Main application with modular components
-  - `enhanced_app.py`: Full-featured version with all capabilities
-  - `app.py`: Basic version for simple use cases
+  - `enhanced_ui_app.py`: Enhanced UI version with advanced features
 - **RAG Engines**: Multiple RAG implementations
   - `rag_system.py`: Base RAG system
   - `enhanced_rag_system.py`: Enhanced with memory and file management
@@ -264,10 +261,7 @@ Community Context → LLM Reasoning → Response
 ```
 ├── # Main Applications
 ├── main_app.py                  # Primary modular application
-├── enhanced_app.py              # Full-featured application
-├── app.py                       # Basic application
-├── quick_start.py               # Quick testing version
-├── ultra_fast_start.py          # Minimal setup version
+├── enhanced_ui_app.py           # Enhanced UI version
 ├── run.py                       # Application launcher
 ├── run_graphrag.py              # Graph RAG specific launcher
 │
@@ -275,6 +269,7 @@ Community Context → LLM Reasoning → Response
 ├── rag_system.py                # Base RAG implementation
 ├── enhanced_rag_system.py       # Enhanced RAG with memory
 ├── graph_rag_system.py          # Graph RAG implementation
+├── elasticsearch_rag_system.py  # Elasticsearch RAG implementation
 │
 ├── # Document Processing
 ├── pdf_downloader.py            # Basic PDF processing
@@ -284,6 +279,7 @@ Community Context → LLM Reasoning → Response
 │
 ├── # Storage & Memory
 ├── chroma_vector_store.py       # ChromaDB integration
+├── custom_elasticsearch_store.py # Custom Elasticsearch store
 ├── conversation_memory.py       # Conversation context
 │
 ├── # UI Components
@@ -306,7 +302,13 @@ Community Context → LLM Reasoning → Response
 │
 ├── # Testing & Benchmarking
 ├── test_pdf_discovery.py        # PDF discovery tests
+├── test_elasticsearch_rag.py    # Elasticsearch RAG tests
+├── test_es_no_streamlit.py      # ES standalone tests
+├── test_simplified_es.py        # Simplified ES tests
+├── test_upload_workflow.py      # Upload workflow tests
+├── test_web_upload_simulation.py # Web upload simulation tests
 ├── benchmark_startup.py         # Performance benchmarking
+├── rag_system_benchmark.py      # RAG system comparison
 │
 ├── # Data Storage
 ├── data/
@@ -316,11 +318,22 @@ Community Context → LLM Reasoning → Response
 │   ├── user_uploads/            # User uploaded files
 │   └── user_preferences.json   # User preferences
 │
+├── # Elasticsearch Data
+├── elasticsearch_data/          # Elasticsearch indices and data
+│
 ├── # Deployment
-├── docker-compose.yml           # Docker orchestration
-├── Dockerfile                   # Container definition
+├── docker-compose.yml           # Standard Docker orchestration
+├── docker-compose.light.yml     # Light deployment
+├── docker-compose.prod.yml      # Production deployment
+├── docker-compose.elasticsearch.yml # Elasticsearch deployment
+├── Dockerfile                   # Standard container definition
+├── Dockerfile.light             # Light container
+├── Dockerfile.prod              # Production container
 ├── docker-run.sh/.bat           # Run scripts
 ├── docker-deploy.sh/.bat        # Deployment scripts
+├── docker-fast-build.sh/.bat    # Fast build scripts
+├── docker-test.sh               # Test script
+├── emergency-cleanup.sh         # Emergency cleanup
 │
 └── # Dependencies & Documentation
     ��── requirements.txt         # Python dependencies
@@ -340,7 +353,7 @@ GROQ_API_KEY=your_groq_api_key
 
 # Embedding Provider ('jina' or 'local')
 EMBEDDING_PROVIDER=jina
-JINA_API_KEY=your_jina_api_key # Required if EMBEDDING_PROVIDER is 'jina'
+JINA_API_KEY=your_jina_api_key # Optional, for optimized embedding performance
 
 # Optional
 GEMINI_API_KEY=your_gemini_api_key  # For OCR functionality
@@ -515,7 +528,7 @@ MAX_CONTEXT_LENGTH=4000
     *   **知識圖譜**：能夠從文件中提取實體和關係，建立知識圖譜並進行視覺化展示。
 *   **專案結構**：
     *   結構清晰，按功能模組化（`components`, `config`, `utils` 等）。
-    *   存在多個應用程式入口點（`app.py`, `main_app.py`, `enhanced_app.py`, `quick_start.py` 等），可能是為了不同的啟動模式或開發階段。
+    *   目前有兩個主要應用程式入口點（`main_app.py`, `enhanced_ui_app.py`），分別提供不同的功能模式。
 
 總體來說，這是一個非常完整且強大的 POC 專案，不僅實現了核心功���，還考慮了部署、擴展性和多種使用場景。
 
@@ -526,39 +539,39 @@ MAX_CONTEXT_LENGTH=4000
 #### 1. 程式碼重複與檔案結構混亂
 
 *   **問題描述**：
-    *   存在多個功能類似的應用程式入口檔案，例如 `app.py`, `enhanced_app.py`, `main_app.py`。這會讓新接手的開發者感到困惑，不確定應該從哪個檔案啟動，也增加了維護成本。
-    *   `rag_system.py` 和 `enhanced_rag_system.py` 存在繼承關係，但 `app.py` 卻直接使用了 `EnhancedRAGSystem`，使得 `rag_system.py` 的定位變得模糊，似乎有些功能被重複實現。
+    *   雖然已精簡至兩個主要應用程式入口（`main_app.py`, `enhanced_ui_app.py`），但 `run.py` 中仍引用不存在的 `app.py` 和 `enhanced_app.py` 檔案，這會導致啟動失敗。
+    *   `rag_system.py` 和 `enhanced_rag_system.py` 存在清晰的繼承關係，但系統架構說明中仍提及不存在的檔案，可能造成混淆。
 *   **潛在風險**：維護困難、程式碼不一致、新人上手門檻高。
 *   **修改建議**：
-    *   **合併應用入口**：將 `app.py`, `enhanced_app.py`, `main_app.py` 的功能合併到一個主要的 `app.py` 或 `main.py` 中。使用 `config.py` 或環境變數來控制要啟用哪些功能（例如，是否啟用 Graph RAG、是否使用對話記憶等）。這樣可以簡化專案結構，使入口唯一。
-    *   **清晰化 RAG 系統繼承鏈**：明確 `RAGSystem` 為基底類別，`EnhancedRAGSystem` 為擴展類別。確保基礎功能都在基底類別中實現，擴展類別只添加新功能，避免功能覆蓋或混亂。
+    *   **修正 run.py 檔案引用**：更新 `run.py` 中的檔案引用，將不存在的 `app.py` 和 `enhanced_app.py` 改為實際存在的 `main_app.py` 和 `enhanced_ui_app.py`。
+    *   **利用現有的 RAG_SYSTEM_TYPE 設定**：在應用程式中實作 `config.py` 中的 `RAG_SYSTEM_TYPE` 環境變數，讓使用者可以透過設定檔動態切換不同的 RAG 系統模式。
 
 #### 2. Elasticsearch 整合問題
 
 *   **問題描述**：
     *   在 `elasticsearch_rag_system.py` 中，`create_index` 方法的邏輯非常複雜，包含了 `try-except` 嵌套和兩種不同的索引建立方法（`from_documents` 和逐個 `insert`）。這通常意味著主要的 `from_documents` 方法可能存在不穩定或失敗的情況。
-    *   程式碼中使用了 `custom_elasticsearch_store.py`，但這個檔案並未提供，我無法檢視其內容。如果這個自定義存儲有問題，會直接影響 Elasticsearch 的功能。
+    *   程式碼中使用了 `custom_elasticsearch_store.py`，這是一個自定義的 Elasticsearch 存儲實作。需要確保其與 LlamaIndex 的最新版本保持兼容性。
     *   在 `search_documents` 方法中，文本搜索的分析器被硬編碼為 `"chinese_analyzer"`，但這個分析器在 `_create_elasticsearch_index` 方法中並未被定義（定義的是 `text_analyzer`）。這會導致搜索時出錯。
 *   **潛在風險**：Elasticsearch 索引建立失敗、搜索功能異常、系統不穩定。
 *   **修改建議**：
     *   **簡化索引建立邏輯**：深入排查 `VectorStoreIndex.from_documents` 失敗的原因，並嘗試修復它，而不是依賴備用方案。可能是 LlamaIndex 版本與 Elasticsearch Store 的兼容性問題。
     *   **統一分析器名稱**：將 `search_documents` 中使用的分析器名稱從 `"chinese_analyzer"` 改為 `_create_elasticsearch_index` 中定義的 `"text_analyzer"`，或是在索引建立時就定義好 `chinese_analyzer`。
-    *   **提供自定義模組**：確保 `custom_elasticsearch_store.py` 檔案存在且功能正確。
+    *   **驗證自定義模組**：檢查 `custom_elasticsearch_store.py` 與 LlamaIndex 最新版本的兼容性。
 
 #### 3. 相依性管理 (requirements.txt)
 
 *   **問題描述**：
-    *   `requirements.txt` 中包含了一些被註解掉的套件，如 `streamlit-agraph` 和 `streamlit-elements`，並註明「可能不存在」。這表示這些 UI 功能可能無法正常運作。
-    *   同樣，一些效能或社群檢測相關的套件也被註解，如 `graspologic` 和 `gc3pie`。
+    *   `requirements.txt` 目前已經清理得相當乾淨，但缺少版本鎖定，可能在不同環境中導致套件版本不一致的問題。
+    *   某些進階功能（如 Graph RAG 的社群檢測）使用了 `python-louvain`，但沒有備選方案。
 *   **潛在風險**：功能不完整、部署時可能因缺少套件而失敗。
 *   **修改建議**：
-    *   **確認並清理相依性**：找到被註解套件的替代方案，或者如果功能不再需要，就從程式碼中移除相關的 import 和呼叫，並清理 `requirements.txt`。
-    *   **版本鎖定**：建議使用 `pip freeze > requirements.txt` 來產生一��包含所有子相依性且版本被鎖定的檔案，或使用 `poetry`, `pipenv` 等工具來更好地管理相依性，以確保環境的一致性。
+    *   **版本鎖定**：建議使用 `pip freeze > requirements.txt` 來產生一個包含所有子相依性且版本被鎖定的檔案，或使用 `poetry`, `pipenv` 等工具來更好地管理相依性，以確保環境的一致性。
+    *   **添加備選方案**：為關鍵套件（如社群檢測算法）提供多種實作選擇，以提高系統的穩定性。
 
 #### 4. 設定管理 (config.py)
 
 *   **問題描述**：
-    *   `config.py` 中有一個 `RAG_SYSTEM_TYPE` 的環境變數，用於在 `enhanced`, `graph`, `elasticsearch` 之間切換。但在任何一個應用程式入口（如 `app.py`）中，都沒有看到讀取這個變數來動態載入對應 RAG 系統的邏輯。目前似乎是寫死的。
+    *   `config.py` 中有一個 `RAG_SYSTEM_TYPE` 的環境變數，用於在 `enhanced`, `graph`, `elasticsearch` 之間切換。但在主要應用程式入口中，都沒有看到讀取這個變數來動態載入對應 RAG 系統的邏輯。目前系統模式似乎是寫死的。
 *   **潛在風險**：設定與實際行為不符，使用者無法透過環境變數切換 RAG 模式。
 *   **修改建議**：
     *   在應用程式啟動時，增加一個工廠函式 (factory function) 或判斷邏輯，根據 `RAG_SYSTEM_TYPE` 的值來實例化對應的 RAG 系統類別。

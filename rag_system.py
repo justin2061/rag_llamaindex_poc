@@ -7,7 +7,10 @@ from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.core.storage.index_store import SimpleIndexStore
 from llama_index.core.vector_stores import SimpleVectorStore
 from llama_index.llms.groq import Groq
-from llama_index.embeddings.jina import JinaEmbedding
+import requests
+import numpy as np
+from typing import List
+from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.node_parser import SimpleNodeParser
 
 # 導入新的功能模組
@@ -37,6 +40,76 @@ except ImportError:
 from config import (
     GROQ_API_KEY, LLM_MODEL, INDEX_DIR, JINA_API_KEY
 )
+
+class JinaEmbeddingAPI(BaseEmbedding):
+    """自定義 Jina Embedding API 類別"""
+    
+    def __init__(self, api_key: str, model: str = "jina-embeddings-v3", task: str = "text-matching"):
+        super().__init__()
+        self.api_key = api_key
+        self.model = model
+        self.task = task
+        self.url = 'https://api.jina.ai/v1/embeddings'
+        
+    def _get_text_embedding(self, text: str) -> List[float]:
+        """獲取單個文本的嵌入向量"""
+        return self._get_text_embeddings([text])[0]
+    
+    def _get_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """獲取多個文本的嵌入向量"""
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self.api_key}'
+        }
+        data = {
+            "model": self.model,
+            "task": self.task,
+            "truncate": True,
+            "input": texts
+        }
+        
+        try:
+            response = requests.post(self.url, headers=headers, json=data)
+            response.raise_for_status()
+            result = response.json()
+            
+            # 提取嵌入向量
+            embeddings = []
+            for item in result.get('data', []):
+                embeddings.append(item.get('embedding', []))
+            
+            return embeddings
+        except Exception as e:
+            st.error(f"Jina API 調用失敗: {str(e)}")
+            st.warning("⚠️ 後備方案：使用簡單的文本特徵向量（功能有限）")
+            # 如果 API 失敗，使用簡單的文本特徵作為後備
+            return [self._simple_text_embedding(text) for text in texts]
+    
+    def _simple_text_embedding(self, text: str) -> List[float]:
+        """簡單的文本特徵向量（後備方案）"""
+        # 這是一個非常簡單的特徵提取，僅作為應急後備
+        # 實際生產環境建議確保 API 可用性
+        import hashlib
+        
+        # 基於文本內容生成一致的特徵向量
+        text_hash = hashlib.md5(text.encode()).hexdigest()
+        
+        # 生成一個固定長度的向量（384維，模擬常見 embedding 維度）
+        embedding = []
+        for i in range(0, 32, 2):  # 使用 hash 的每2個字符
+            hex_val = int(text_hash[i:i+2], 16)
+            # 將每個字節轉換為多個特徵值
+            for j in range(12):  # 32/2 * 12 = 192，再重複一次得到384
+                embedding.append((hex_val + j * 17) / 255.0 - 0.5)  # 歸一化到 [-0.5, 0.5]
+        
+        # 重複一次以達到384維
+        embedding = embedding + embedding
+        
+        return embedding[:384]  # 確保長度為384
+    
+    async def _aget_text_embedding(self, text: str) -> List[float]:
+        """異步獲取文本嵌入（回退到同步方法）"""
+        return self._get_text_embedding(text)
 
 def load_pdf_with_pypdf2(pdf_path: str) -> List[Document]:
     """使用PyPDF2載入PDF"""
@@ -93,16 +166,24 @@ class RAGSystem:
             st.error("請設定GROQ_API_KEY環境變數")
             return
         
-        # 設定 Jina Embedding 模型
+        # 設定 Embedding 模型
         if JINA_API_KEY:
             st.info("🚀 使用 Jina Embedding API")
-            embed_model = JinaEmbedding(
+            # 使用自定義的 Jina API 調用
+            embed_model = JinaEmbeddingAPI(
                 api_key=JINA_API_KEY,
-                model="jina-embeddings-v2-base-zh" # 使用中文模型
+                model="jina-embeddings-v3",
+                task="text-matching"
             )
         else:
-            st.error("❌ Jina Embedding 需要設定 JINA_API_KEY，請在 .env 中設定。")
-            return
+            st.warning("⚠️ 未設定 JINA_API_KEY，將使用簡單特徵向量作為後備")
+            st.info("💡 建議設定 JINA_API_KEY 以獲得更好的 embedding 效果")
+            # 使用自定義的簡單後備方案
+            embed_model = JinaEmbeddingAPI(
+                api_key="dummy",  # 將會觸發後備方案
+                model="jina-embeddings-v3",
+                task="text-matching"
+            )
         
         # 設定全域配置
         Settings.llm = llm

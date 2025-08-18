@@ -255,8 +255,8 @@ class GraphRAGExtractor(TransformComponent):
 class GraphRAGSystem(EnhancedRAGSystem):
     """Graph RAG 系統 - 基於屬性圖的檢索增強生成"""
     
-    def __init__(self, use_chroma: bool = True):
-        super().__init__(use_chroma)
+    def __init__(self, use_elasticsearch: bool = True):
+        super().__init__(use_elasticsearch=use_elasticsearch, use_chroma=False)
         self.property_graph_index = None
         self.graph_store = SimpleGraphStore()
         self.kg_extractor = None

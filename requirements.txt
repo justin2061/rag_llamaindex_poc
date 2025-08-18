@@ -1,17 +1,17 @@
 streamlit>=1.32.0
 llama-index>=0.10.25
 llama-index-llms-groq>=0.1.3
-llama-index-embeddings-huggingface>=0.2.0
+# llama-index-embeddings-huggingface>=0.2.0  # 移除以避免 NVIDIA/CUDA 依賴，改用純 API 方案
+# 注意：某些測試文件（test_*.py）可能仍有 HuggingFace import，但這些文件不會在 Docker 中運行
 llama-index-readers-file>=0.1.4
 requests>=2.31.0
 beautifulsoup4>=4.12.2
 PyMuPDF>=1.23.3     # Docker 環境可以處理編譯
-llama-index-vector-stores-chroma>=0.1.4
-llama-index-embeddings-jina>=0.1.5
+# llama-index-vector-stores-chroma>=0.1.4  # 已用 Elasticsearch 取代，避免 ML 依賴
 
 # Graph RAG 相關
 networkx>=3.0
-pyvis>=0.3.2
+# pyvis>=0.3.2  # 視覺化庫，可能在 Docker 中不需要，如需要可解除註解
 
 # DOCX 處理
 python-docx>=0.8.11
@@ -28,4 +28,4 @@ llama-index-vector-stores-elasticsearch>=0.2.0
 
 # 效能監控和基準測試
 psutil>=5.9.0
-matplotlib>=3.7.0
+# matplotlib>=3.7.0  # 圖表庫，可能觸發 numpy/scipy 依賴，Docker 中暫不需要

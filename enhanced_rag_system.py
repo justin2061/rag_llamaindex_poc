@@ -3,22 +3,90 @@ from typing import List, Optional, Dict, Any
 import streamlit as st
 from llama_index.core import VectorStoreIndex, Document
 
+# Elasticsearch 支援
+try:
+    from elasticsearch import Elasticsearch
+    from llama_index.vector_stores.elasticsearch import ElasticsearchStore
+    from llama_index.core.storage.storage_context import StorageContext
+    ELASTICSEARCH_AVAILABLE = True
+except ImportError:
+    ELASTICSEARCH_AVAILABLE = False
+
 from rag_system import RAGSystem
 from conversation_memory import ConversationMemory
 from user_file_manager import UserFileManager
 from gemini_ocr import GeminiOCRProcessor
-from chroma_vector_store import ChromaVectorStoreManager
+# from chroma_vector_store import ChromaVectorStoreManager  # 已改用 Elasticsearch
 
 class EnhancedRAGSystem(RAGSystem):
-    def __init__(self, use_chroma: bool = True):
+    def __init__(self, use_elasticsearch: bool = True, use_chroma: bool = False):
         super().__init__()
         
         # 初始化新功能模組
         self.memory = ConversationMemory()
         self.file_manager = UserFileManager()
         self.ocr_processor = GeminiOCRProcessor()
-        self.chroma_manager = ChromaVectorStoreManager() if use_chroma else None
-        self.use_chroma = use_chroma
+        
+        # 優先使用 Elasticsearch，停用 ChromaDB
+        self.use_elasticsearch = use_elasticsearch
+        self.use_chroma = False  # 強制停用 ChromaDB
+        self.chroma_manager = None  # 不再使用 ChromaDB
+        
+        # Elasticsearch 設定
+        self.elasticsearch_client = None
+        self.elasticsearch_store = None
+        
+        # 如果啟用 Elasticsearch，嘗試初始化
+        if self.use_elasticsearch and ELASTICSEARCH_AVAILABLE:
+            self._initialize_elasticsearch()
+    
+    def _initialize_elasticsearch(self):
+        """初始化 Elasticsearch 連接"""
+        try:
+            from config import (
+                ELASTICSEARCH_HOST, ELASTICSEARCH_PORT, ELASTICSEARCH_SCHEME,
+                ELASTICSEARCH_INDEX_NAME, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD,
+                ELASTICSEARCH_TIMEOUT, ELASTICSEARCH_MAX_RETRIES, ELASTICSEARCH_VERIFY_CERTS,
+                ELASTICSEARCH_VECTOR_DIMENSION
+            )
+            
+            # 建立 Elasticsearch 客戶端
+            es_config = {
+                'hosts': [f'{ELASTICSEARCH_SCHEME}://{ELASTICSEARCH_HOST}:{ELASTICSEARCH_PORT}'],
+                'verify_certs': ELASTICSEARCH_VERIFY_CERTS,
+                'ssl_show_warn': False,
+                'timeout': ELASTICSEARCH_TIMEOUT,
+                'max_retries': ELASTICSEARCH_MAX_RETRIES,
+                'retry_on_timeout': True
+            }
+            
+            if ELASTICSEARCH_USERNAME and ELASTICSEARCH_PASSWORD:
+                es_config['basic_auth'] = (ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD)
+            
+            self.elasticsearch_client = Elasticsearch(**es_config)
+            
+            # 檢查連接
+            if self.elasticsearch_client.ping():
+                st.info("✅ Elasticsearch 連接成功")
+                
+                # 建立 vector store
+                self.elasticsearch_store = ElasticsearchStore(
+                    es_client=self.elasticsearch_client,
+                    index_name=ELASTICSEARCH_INDEX_NAME,
+                    vector_field="embedding",
+                    text_field="content",
+                    embedding_dim=ELASTICSEARCH_VECTOR_DIMENSION,
+                )
+                return True
+            else:
+                st.warning("⚠️ 無法連接到 Elasticsearch，將使用 SimpleVectorStore")
+                self.use_elasticsearch = False
+                return False
+                
+        except Exception as e:
+            st.warning(f"⚠️ Elasticsearch 初始化失敗: {str(e)}，將使用 SimpleVectorStore")
+            self.use_elasticsearch = False
+            return False
     
     def _ensure_models_initialized(self):
         """確保模型已初始化"""
@@ -28,11 +96,11 @@ class EnhancedRAGSystem(RAGSystem):
     
     def _setup_models(self):
         """設定模型 - 覆寫父類方法以確保正確初始化"""
-        from config import GROQ_API_KEY, EMBEDDING_MODEL, LLM_MODEL
+        from config import GROQ_API_KEY, LLM_MODEL, JINA_API_KEY
         from llama_index.llms.groq import Groq
-        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
         from llama_index.core.node_parser import SimpleNodeParser
         from llama_index.core import Settings
+        from rag_system import JinaEmbeddingAPI
         import streamlit as st
         
         # 設定LLM
@@ -42,10 +110,23 @@ class EnhancedRAGSystem(RAGSystem):
             st.error("請設定GROQ_API_KEY環境變數")
             return
         
-        # 設定嵌入模型
+        # 設定嵌入模型 - 使用 Jina API
         try:
-            embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
-            st.info(f"✅ 成功初始化嵌入模型: {EMBEDDING_MODEL}")
+            if JINA_API_KEY:
+                st.info("🚀 使用 Jina Embedding API")
+                embed_model = JinaEmbeddingAPI(
+                    api_key=JINA_API_KEY,
+                    model="jina-embeddings-v3",
+                    task="text-matching"
+                )
+            else:
+                st.warning("⚠️ 未設定 JINA_API_KEY，將使用簡單特徵向量作為後備")
+                embed_model = JinaEmbeddingAPI(
+                    api_key="dummy",  # 觸發後備方案
+                    model="jina-embeddings-v3",
+                    task="text-matching"
+                )
+            st.info("✅ 成功初始化嵌入模型")
         except Exception as e:
             st.error(f"嵌入模型初始化失敗: {str(e)}")
             return
@@ -256,57 +337,47 @@ class EnhancedRAGSystem(RAGSystem):
             return None
     
     def create_index(self, documents: List[Document]) -> VectorStoreIndex:
-        """建立新的向量索引 (支援 ChromaDB)"""
+        """建立新的向量索引 (優先使用 Elasticsearch)"""
         with st.spinner("正在建立向量索引..."):
             # 確保模型已正確初始化
             self._ensure_models_initialized()
             
-            chroma_success = False
             index = None
             
             try:
-                if self.use_chroma and self.chroma_manager:
-                    # 嘗試使用 ChromaDB
-                    st.info("嘗試使用 ChromaDB 向量儲存...")
+                # 優先使用 Elasticsearch
+                if self.use_elasticsearch and self.elasticsearch_store:
+                    st.info("使用 Elasticsearch 建立索引...")
                     try:
-                        # 初始化 ChromaDB 客戶端
-                        if self.chroma_manager.initialize_client():
-                            # 獲取 ChromaDB 儲存上下文
-                            storage_context = self.chroma_manager.get_storage_context()
-                            if storage_context:
-                                # 創建索引
-                                index = VectorStoreIndex.from_documents(
-                                    documents, 
-                                    storage_context=storage_context
-                                )
-                                st.success("✅ 成功使用 ChromaDB 建立索引")
-                                chroma_success = True
-                            else:
-                                st.warning("無法獲取 ChromaDB 儲存上下文，回退到 SimpleVectorStore")
-                        else:
-                            st.warning("ChromaDB 客戶端初始化失敗，回退到 SimpleVectorStore")
+                        # 建立 storage context
+                        storage_context = StorageContext.from_defaults(
+                            vector_store=self.elasticsearch_store
+                        )
+                        
+                        # 創建索引
+                        index = VectorStoreIndex.from_documents(
+                            documents, 
+                            storage_context=storage_context
+                        )
+                        st.success("✅ 成功使用 Elasticsearch 建立索引")
+                        
                     except Exception as e:
-                        st.warning(f"ChromaDB 索引創建失敗: {str(e)}")
-                        st.info("正在回退到 SimpleVectorStore...")
+                        st.warning(f"Elasticsearch 索引創建失敗: {str(e)}")
+                        st.info("回退到 SimpleVectorStore...")
+                        self.use_elasticsearch = False
                 
-                # 如果 ChromaDB 失敗或未啟用，使用 SimpleVectorStore
-                if not chroma_success:
-                    try:
-                        st.info("使用 SimpleVectorStore 建立索引...")
-                        index = VectorStoreIndex.from_documents(documents)
-                        st.success("✅ 成功使用 SimpleVectorStore 建立索引")
-                        # 停用 ChromaDB 避免後續衝突
-                        self.use_chroma = False
-                    except Exception as e:
-                        st.error(f"SimpleVectorStore 索引創建也失敗: {str(e)}")
-                        return None
-                
-                if index:
+                # 如果 Elasticsearch 失敗或未啟用，使用 SimpleVectorStore
+                if not self.use_elasticsearch:
+                    st.info("使用 SimpleVectorStore 建立索引...")
+                    index = VectorStoreIndex.from_documents(documents)
+                    st.success("✅ 成功使用 SimpleVectorStore 建立索引")
+                    
                     # 持久化索引
                     from config import INDEX_DIR
                     index.storage_context.persist(persist_dir=INDEX_DIR)
                     st.success("✅ 索引已持久化保存")
-                    
+                
+                if index:
                     self.index = index
                     return index
                 else:
@@ -318,137 +389,64 @@ class EnhancedRAGSystem(RAGSystem):
                 return None
     
     def load_existing_index(self) -> bool:
-        """載入現有的向量索引 (支援 ChromaDB 智能遷移)"""
+        """載入現有的向量索引 (優先使用 Elasticsearch)"""
         try:
+            # 優先嘗試 Elasticsearch
+            if self.use_elasticsearch and self.elasticsearch_store:
+                st.info("嘗試從 Elasticsearch 載入索引...")
+                try:
+                    # 檢查 Elasticsearch 是否有資料
+                    es_stats = self.elasticsearch_client.indices.stats(
+                        index=self.elasticsearch_store.index_name
+                    )
+                    doc_count = es_stats['indices'][self.elasticsearch_store.index_name]['total']['docs']['count']
+                    
+                    if doc_count > 0:
+                        # 從 Elasticsearch 重建索引
+                        storage_context = StorageContext.from_defaults(
+                            vector_store=self.elasticsearch_store
+                        )
+                        self.index = VectorStoreIndex.from_vector_store(
+                            vector_store=self.elasticsearch_store,
+                            storage_context=storage_context
+                        )
+                        self.setup_query_engine()
+                        st.success(f"✅ 成功從 Elasticsearch 載入 {doc_count} 個文檔")
+                        return True
+                    else:
+                        st.info("Elasticsearch 索引為空")
+                        
+                except Exception as e:
+                    st.warning(f"Elasticsearch 載入失敗: {str(e)}")
+                    self.use_elasticsearch = False
+            
+            # 回退到 SimpleVectorStore
             from config import INDEX_DIR
             if os.path.exists(INDEX_DIR) and os.listdir(INDEX_DIR):
-                with st.spinner("正在載入現有索引..."):
+                st.info("嘗試從 SimpleVectorStore 載入索引...")
+                try:
+                    from llama_index.core import load_index_from_storage
+                    from llama_index.core.storage.storage_context import StorageContext
                     
-                    if self.use_chroma and self.chroma_manager:
-                        # 檢查 ChromaDB 是否有資料
-                        if self.chroma_manager.has_data():
-                            # ChromaDB 有資料，直接載入
-                            st.info("發現 ChromaDB 資料，正在載入...")
-                            return self._load_chromadb_index()
-                        else:
-                            # ChromaDB 是空的，嘗試從 SimpleVectorStore 遷移
-                            st.info("ChromaDB 是空的，嘗試從 SimpleVectorStore 遷移...")
-                            return self._load_and_migrate_from_simple()
-                    else:
-                        # 直接載入 SimpleVectorStore
-                        return self._load_simple_vector_store()
+                    storage_context = StorageContext.from_defaults(persist_dir=INDEX_DIR)
+                    self.index = load_index_from_storage(storage_context)
+                    self.setup_query_engine()
+                    st.success("✅ 成功載入現有索引 (SimpleVectorStore)")
+                    return True
+                    
+                except Exception as e:
+                    st.error(f"載入 SimpleVectorStore 失敗: {str(e)}")
+                    return False
             else:
                 st.info("沒有找到現有索引檔案")
                 return False
+                
         except Exception as e:
             st.error(f"載入索引時發生未預期錯誤: {str(e)}")
             return False
     
-    def _load_chromadb_index(self) -> bool:
-        """載入 ChromaDB 索引"""
-        try:
-            storage_context = self.chroma_manager.get_storage_context()
-            if storage_context:
-                try:
-                    from llama_index.core import load_index_from_storage
-                    self.index = load_index_from_storage(storage_context)
-                    self.setup_query_engine()
-                    st.success("✅ 成功載入 ChromaDB 索引")
-                    return True
-                except Exception as load_e:
-                    # 如果無法載入索引，但 ChromaDB 有資料，嘗試重建索引
-                    st.info("無法載入現有索引，但發現 ChromaDB 資料，嘗試重建索引...")
-                    try:
-                        # 直接從 ChromaDB 重建索引
-                        from llama_index.core import VectorStoreIndex
-                        self.index = VectorStoreIndex.from_vector_store(
-                            vector_store=self.chroma_manager.vector_store,
-                            storage_context=storage_context
-                        )
-                        self.setup_query_engine()
-                        st.success("✅ 成功重建 ChromaDB 索引")
-                        return True
-                    except Exception as rebuild_e:
-                        st.error(f"重建索引失敗: {str(rebuild_e)}")
-                        return False
-            else:
-                st.warning("無法獲取 ChromaDB 儲存上下文")
-                return False
-        except Exception as e:
-            st.warning(f"載入 ChromaDB 索引失敗: {str(e)}")
-            return False
     
-    def _load_and_migrate_from_simple(self) -> bool:
-        """從 SimpleVectorStore 載入並遷移到 ChromaDB"""
-        try:
-            # 先嘗試載入 SimpleVectorStore
-            if self._load_simple_vector_store(migrate_to_chroma=False):
-                st.info("SimpleVectorStore 載入成功，開始遷移到 ChromaDB...")
-                
-                # 取得當前的文檔
-                documents = []
-                if hasattr(self.index, 'docstore') and self.index.docstore.docs:
-                    for node_id, node in self.index.docstore.docs.items():
-                        documents.append(node)
-                
-                if documents:
-                    # 使用 ChromaDB 重建索引
-                    storage_context = self.chroma_manager.get_storage_context()
-                    if storage_context:
-                        new_index = VectorStoreIndex.from_documents(
-                            documents, 
-                            storage_context=storage_context
-                        )
-                        
-                        # 持久化到 INDEX_DIR
-                        from config import INDEX_DIR
-                        new_index.storage_context.persist(persist_dir=INDEX_DIR)
-                        
-                        # 更新索引和查詢引擎
-                        self.index = new_index
-                        self.setup_query_engine()
-                        
-                        st.success(f"✅ 成功遷移 {len(documents)} 個文檔到 ChromaDB")
-                        return True
-                    else:
-                        st.error("無法獲取 ChromaDB 儲存上下文進行遷移")
-                        # 保持 SimpleVectorStore
-                        self.use_chroma = False
-                        return True
-                else:
-                    st.warning("沒有找到可遷移的文檔")
-                    return True
-            else:
-                st.warning("無法載入 SimpleVectorStore 進行遷移")
-                return False
-                
-        except Exception as e:
-            st.error(f"遷移過程發生錯誤: {str(e)}")
-            # 嘗試回退到 SimpleVectorStore
-            return self._load_simple_vector_store(migrate_to_chroma=False)
     
-    def _load_simple_vector_store(self, migrate_to_chroma: bool = True) -> bool:
-        """載入 SimpleVectorStore"""
-        try:
-            st.info("載入 SimpleVectorStore 索引...")
-            from llama_index.core import load_index_from_storage
-            from llama_index.core.storage.storage_context import StorageContext
-            from config import INDEX_DIR
-            
-            storage_context = StorageContext.from_defaults(persist_dir=INDEX_DIR)
-            self.index = load_index_from_storage(storage_context)
-            self.setup_query_engine()
-            
-            if migrate_to_chroma:
-                st.success("✅ 成功載入現有索引 (SimpleVectorStore)")
-                # 暫時停用 ChromaDB 以避免後續衝突
-                self.use_chroma = False
-            
-            return True
-            
-        except Exception as e:
-            st.error(f"載入 SimpleVectorStore 失敗: {str(e)}")
-            return False
 
     def rebuild_index_with_user_files(self) -> bool:
         """重建索引，包含用戶上傳的檔案"""
@@ -510,7 +508,7 @@ class EnhancedRAGSystem(RAGSystem):
             return False
     
     def get_document_statistics(self) -> dict:
-        """取得文件統計資訊 (支援 ChromaDB)"""
+        """取得文件統計資訊 (支援 Elasticsearch 和 SimpleVectorStore)"""
         if not self.index:
             return {}
         
@@ -522,52 +520,96 @@ class EnhancedRAGSystem(RAGSystem):
         }
         
         try:
-            if self.use_chroma and self.chroma_manager and self.chroma_manager.has_data():
-                # 使用 ChromaDB 統計
-                chroma_stats = self.chroma_manager.get_collection_stats()
-                if chroma_stats:
-                    stats["total_documents"] = chroma_stats.get("total_documents", 0)
-                    stats["total_nodes"] = chroma_stats.get("total_documents", 0)  # ChromaDB 中每個文檔對應一個節點
+            if self.use_elasticsearch and self.elasticsearch_client:
+                # 使用 Elasticsearch 統計
+                try:
+                    from config import ELASTICSEARCH_INDEX_NAME
+                    index_name = ELASTICSEARCH_INDEX_NAME or 'rag_intelligent_assistant'
                     
-                    # 從 ChromaDB 元數據統計文檔詳情
-                    source_types = chroma_stats.get("source_types", {})
-                    for doc_type, count in source_types.items():
+                    es_stats = self.elasticsearch_client.indices.stats(
+                        index=index_name
+                    )
+                    doc_count = es_stats['indices'][index_name]['total']['docs']['count']
+                    index_size = es_stats['indices'][index_name]['total']['store']['size_in_bytes']
+                    
+                    stats["total_documents"] = doc_count
+                    stats["total_nodes"] = doc_count
+                    stats["index_size_bytes"] = index_size
+                    stats["index_size_mb"] = round(index_size / 1024 / 1024, 2)
+                    
+                    # 從 Elasticsearch 獲取文檔類型統計
+                    search_result = self.elasticsearch_client.search(
+                        index=index_name,
+                        body={
+                            "size": 0,
+                            "aggs": {
+                                "source_types": {
+                                    "terms": {
+                                        "field": "metadata.source.keyword",
+                                        "size": 100
+                                    }
+                                }
+                            }
+                        }
+                    )
+                    
+                    source_buckets = search_result.get('aggregations', {}).get('source_types', {}).get('buckets', [])
+                    for bucket in source_buckets:
                         stats["document_details"].append({
-                            "name": f"{doc_type} 文檔",
-                            "pages": count,  # 暫時用文檔數量代替頁數
-                            "node_count": count
+                            "name": bucket['key'],
+                            "pages": bucket['doc_count'],
+                            "node_count": bucket['doc_count']
                         })
                     
-                    st.info(f"📊 從 ChromaDB 獲取統計: {stats['total_documents']} 個文檔")
-                else:
-                    st.warning("無法從 ChromaDB 獲取統計資訊")
+                    st.info(f"📊 從 Elasticsearch 獲取統計: {stats['total_documents']} 個文檔")
+                    
+                except Exception as es_e:
+                    st.warning(f"無法從 Elasticsearch 獲取統計資訊: {str(es_e)}")
+                    # 回退到 SimpleVectorStore 統計
+                    return self._get_simple_vector_store_stats()
             else:
-                # 使用 SimpleVectorStore 統計（原有邏輯）
-                doc_info = {}
-                if hasattr(self.index, 'docstore') and self.index.docstore.docs:
-                    for node in self.index.docstore.docs.values():
-                        source = node.metadata.get("source", "未知")
-                        pages = node.metadata.get("pages", 1)
-                        
-                        if source not in doc_info:
-                            doc_info[source] = {
-                                "name": source,
-                                "pages": pages,
-                                "node_count": 0
-                            }
-                        doc_info[source]["node_count"] += 1
-                    
-                    stats["total_documents"] = len(doc_info)
-                    stats["total_nodes"] = len(self.index.docstore.docs)
-                    stats["document_details"] = list(doc_info.values())
-                    stats["total_pages"] = sum(doc["pages"] for doc in doc_info.values())
-                    
-                    st.info(f"📊 從 SimpleVectorStore 獲取統計: {stats['total_documents']} 個文檔")
-                else:
-                    st.warning("索引中沒有找到文檔資料")
+                # 使用 SimpleVectorStore 統計
+                return self._get_simple_vector_store_stats()
             
         except Exception as e:
             st.error(f"獲取文檔統計時發生錯誤: {str(e)}")
+        
+        return stats
+    
+    def _get_simple_vector_store_stats(self) -> dict:
+        """獲取 SimpleVectorStore 統計資訊"""
+        stats = {
+            "total_documents": 0,
+            "total_nodes": 0,
+            "document_details": [],
+            "total_pages": 0
+        }
+        
+        try:
+            doc_info = {}
+            if hasattr(self.index, 'docstore') and self.index.docstore.docs:
+                for node in self.index.docstore.docs.values():
+                    source = node.metadata.get("source", "未知")
+                    pages = node.metadata.get("pages", 1)
+                    
+                    if source not in doc_info:
+                        doc_info[source] = {
+                            "name": source,
+                            "pages": pages,
+                            "node_count": 0
+                        }
+                    doc_info[source]["node_count"] += 1
+                
+                stats["total_documents"] = len(doc_info)
+                stats["total_nodes"] = len(self.index.docstore.docs)
+                stats["document_details"] = list(doc_info.values())
+                stats["total_pages"] = sum(doc["pages"] for doc in doc_info.values())
+                
+                st.info(f"📊 從 SimpleVectorStore 獲取統計: {stats['total_documents']} 個文檔")
+            else:
+                st.warning("索引中沒有找到文檔資料")
+        except Exception as e:
+            st.error(f"獲取 SimpleVectorStore 統計時發生錯誤: {str(e)}")
         
         return stats
     

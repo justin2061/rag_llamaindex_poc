@@ -45,7 +45,7 @@ class EnhancedRAGSystem(RAGSystem):
     def _initialize_elasticsearch(self):
         """初始化 Elasticsearch 連接"""
         try:
-            from config import (
+            from config.config import (
                 ELASTICSEARCH_HOST, ELASTICSEARCH_PORT, ELASTICSEARCH_SCHEME,
                 ELASTICSEARCH_INDEX_NAME, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD,
                 ELASTICSEARCH_TIMEOUT, ELASTICSEARCH_MAX_RETRIES, ELASTICSEARCH_VERIFY_CERTS,
@@ -98,7 +98,7 @@ class EnhancedRAGSystem(RAGSystem):
     
     def _setup_models(self):
         """設定模型 - 覆寫父類方法以確保正確初始化"""
-        from config import GROQ_API_KEY, LLM_MODEL, JINA_API_KEY
+        from config.config import GROQ_API_KEY, LLM_MODEL, JINA_API_KEY
         from llama_index.llms.groq import Groq
         from llama_index.core.node_parser import SimpleNodeParser
         from llama_index.core import Settings
@@ -370,7 +370,7 @@ class EnhancedRAGSystem(RAGSystem):
                     st.success("✅ 成功使用 SimpleVectorStore 建立索引")
                     
                     # 持久化索引
-                    from config import INDEX_DIR
+                    from config.config import INDEX_DIR
                     index.storage_context.persist(persist_dir=INDEX_DIR)
                     st.success("✅ 索引已持久化保存")
                 
@@ -421,7 +421,7 @@ class EnhancedRAGSystem(RAGSystem):
                     self.use_elasticsearch = False
             
             # 回退到 SimpleVectorStore
-            from config import INDEX_DIR
+            from config.config import INDEX_DIR
             if os.path.exists(INDEX_DIR) and os.listdir(INDEX_DIR):
                 st.info("嘗試從 SimpleVectorStore 載入索引...")
                 try:
@@ -454,7 +454,7 @@ class EnhancedRAGSystem(RAGSystem):
             all_documents = []
             
             # 載入官方茶葉資料
-            from enhanced_pdf_downloader import EnhancedPDFDownloader
+            from ..processors.enhanced_pdf_downloader import EnhancedPDFDownloader
             downloader = EnhancedPDFDownloader()
             official_pdfs = downloader.get_existing_pdfs()
             
@@ -523,7 +523,7 @@ class EnhancedRAGSystem(RAGSystem):
             if self.use_elasticsearch and self.elasticsearch_client:
                 # 使用 Elasticsearch 統計
                 try:
-                    from config import ELASTICSEARCH_INDEX_NAME
+                    from config.config import ELASTICSEARCH_INDEX_NAME
                     index_name = ELASTICSEARCH_INDEX_NAME or 'rag_intelligent_assistant'
                     
                     es_stats = self.elasticsearch_client.indices.stats(

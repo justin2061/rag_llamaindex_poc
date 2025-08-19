@@ -14,9 +14,9 @@ from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.node_parser import SimpleNodeParser
 
 # 導入新的功能模組
-from conversation_memory import ConversationMemory
-from user_file_manager import UserFileManager
-from gemini_ocr import GeminiOCRProcessor
+from ..storage.conversation_memory import ConversationMemory
+from ..processors.user_file_manager import UserFileManager
+from ..processors.gemini_ocr import GeminiOCRProcessor
 
 # 嘗試導入不同的PDF處理庫
 PDF_READER = None

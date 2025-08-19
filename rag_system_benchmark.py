@@ -1,15 +1,30 @@
 import os
 import time
 import psutil
-import matplotlib.pyplot as plt
-import pandas as pd
 from typing import Dict, List, Any
 import streamlit as st
 from datetime import datetime
 
+# 可選的繪圖依賴
+try:
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    PLOTTING_AVAILABLE = True
+except ImportError:
+    plt = None
+    pd = None
+    PLOTTING_AVAILABLE = False
+
 # RAG 系統導入
 from enhanced_rag_system import EnhancedRAGSystem
-from graph_rag_system import GraphRAGSystem
+
+# Graph RAG 系統 - 可選導入
+try:
+    from graph_rag_system import GraphRAGSystem
+    GRAPH_RAG_AVAILABLE = True
+except ImportError:
+    GraphRAGSystem = None
+    GRAPH_RAG_AVAILABLE = False
 
 try:
     from elasticsearch_rag_system import ElasticsearchRAGSystem
@@ -206,8 +221,12 @@ class RAGSystemBenchmark:
         
         systems_to_test = [
             (EnhancedRAGSystem, "Enhanced RAG"),
-            (GraphRAGSystem, "Graph RAG")
         ]
+        
+        if GRAPH_RAG_AVAILABLE:
+            systems_to_test.append((GraphRAGSystem, "Graph RAG"))
+        else:
+            st.warning("⚠️ Graph RAG 系統不可用（依賴已禁用），跳過 Graph RAG 測試")
         
         if ELASTICSEARCH_AVAILABLE:
             systems_to_test.append((ElasticsearchRAGSystem, "Elasticsearch RAG"))
@@ -293,20 +312,35 @@ class RAGSystemBenchmark:
             return
         
         # 創建比較表格
-        comparison_df = pd.DataFrame({
-            '系統': systems,
-            '初始化時間(秒)': [f"{t:.2f}" for t in init_times],
-            '文檔處理時間(秒)': [f"{t:.2f}" for t in processing_times],
-            '記憶體增加(MB)': [f"{m:.1f}" for m in memory_usage],
-            '平均查詢時間(秒)': [f"{t:.3f}" for t in avg_query_times],
-            '查詢成功率(%)': [f"{r:.1f}" for r in success_rates]
-        })
-        
-        st.subheader("📊 效能對比表")
-        st.dataframe(comparison_df)
+        if PLOTTING_AVAILABLE:
+            comparison_df = pd.DataFrame({
+                '系統': systems,
+                '初始化時間(秒)': [f"{t:.2f}" for t in init_times],
+                '文檔處理時間(秒)': [f"{t:.2f}" for t in processing_times],
+                '記憶體增加(MB)': [f"{m:.1f}" for m in memory_usage],
+                '平均查詢時間(秒)': [f"{t:.3f}" for t in avg_query_times],
+                '查詢成功率(%)': [f"{r:.1f}" for r in success_rates]
+            })
+            
+            st.subheader("📊 效能對比表")
+            st.dataframe(comparison_df)
+        else:
+            # 簡單的表格顯示，不依賴 pandas
+            st.subheader("📊 效能對比表")
+            data = []
+            for i, system in enumerate(systems):
+                data.append({
+                    '系統': system,
+                    '初始化時間(秒)': f"{init_times[i]:.2f}",
+                    '文檔處理時間(秒)': f"{processing_times[i]:.2f}",
+                    '記憶體增加(MB)': f"{memory_usage[i]:.1f}",
+                    '平均查詢時間(秒)': f"{avg_query_times[i]:.3f}",
+                    '查詢成功率(%)': f"{success_rates[i]:.1f}"
+                })
+            st.table(data)
         
         # 視覺化比較
-        if len(systems) > 1:
+        if PLOTTING_AVAILABLE and len(systems) > 1:
             fig, axes = plt.subplots(2, 2, figsize=(12, 10))
             
             # 初始化時間比較
@@ -335,6 +369,22 @@ class RAGSystemBenchmark:
             
             plt.tight_layout()
             st.pyplot(fig)
+        elif not PLOTTING_AVAILABLE:
+            st.info("📊 視覺化圖表不可用（matplotlib 未安裝），使用文字版比較")
+            
+            # 使用 Streamlit 內建圖表功能
+            if len(systems) > 1:
+                st.subheader("📈 效能指標比較")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.bar_chart({system: time for system, time in zip(systems, init_times)})
+                    st.caption("初始化時間比較 (秒)")
+                
+                with col2:
+                    st.bar_chart({system: mem for system, mem in zip(systems, memory_usage)})
+                    st.caption("記憶體使用比較 (MB)")
         
         # 推薦建議
         st.subheader("💡 建議")

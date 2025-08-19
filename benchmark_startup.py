@@ -34,6 +34,8 @@ def measure_import_time(module_name, description):
             import networkx
         elif module_name == "groq":
             import groq
+        elif module_name == "elasticsearch":
+            import elasticsearch
         
         end_time = time.time()
         load_time = end_time - start_time
@@ -101,9 +103,10 @@ def benchmark_startup_approaches():
     print("\n🏗️ 重型模組導入測試")
     heavy_imports = [
         ("llama_index", "LlamaIndex 框架"),
-        ("sentence_transformers", "句子轉換器"),
-        ("chromadb", "ChromaDB 向量資料庫"),
-        ("networkx", "NetworkX 圖資料庫"),
+        # ("sentence_transformers", "句子轉換器"),  # 已改用 API 嵌入
+        # ("chromadb", "ChromaDB 向量資料庫"),  # 已替換為 Elasticsearch
+        # ("networkx", "NetworkX 圖資料庫"),  # Graph RAG 已禁用
+        ("elasticsearch", "Elasticsearch 客戶端"),
         ("groq", "Groq API 客戶端"),
     ]
     

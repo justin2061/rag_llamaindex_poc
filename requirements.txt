@@ -7,11 +7,9 @@ llama-index-readers-file>=0.1.4
 requests>=2.31.0
 beautifulsoup4>=4.12.2
 PyMuPDF>=1.23.3     # Docker 環境可以處理編譯
-# llama-index-vector-stores-chroma>=0.1.4  # 已用 Elasticsearch 取代，避免 ML 依賴
 
-# Graph RAG 相關
-networkx>=3.0
-# pyvis>=0.3.2  # 視覺化庫，可能在 Docker 中不需要，如需要可解除註解
+# Google Generative AI (Gemini OCR 功能)
+google-generativeai>=0.3.0
 
 # DOCX 處理
 python-docx>=0.8.11
@@ -19,8 +17,10 @@ python-docx>=0.8.11
 # UI 增強
 streamlit-option-menu>=0.3.6
 
-# 社群檢測替代方案
-python-louvain>=0.16
+# Graph RAG 相關功能已禁用
+# networkx>=3.0
+# pyvis>=0.3.2
+# python-louvain>=0.16
 
 # Elasticsearch RAG 相關 (可選)
 elasticsearch>=8.0.0

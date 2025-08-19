@@ -17,10 +17,17 @@ services:
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - JINA_API_KEY=${JINA_API_KEY}
       - PYTHONPATH=/app
       - STREAMLIT_SERVER_HEADLESS=true
       - STREAMLIT_SERVER_PORT=8501
       - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+      # Elasticsearch 配置
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_SCHEME=http
+      - ENABLE_ELASTICSEARCH=true
+      - RAG_SYSTEM_TYPE=enhanced
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
       interval: 30s
@@ -31,24 +38,26 @@ services:
     networks:
       - rag-network
 
-  # ChromaDB 向量資料庫 (Graph RAG 推薦使用)
-  chromadb:
-    image: ghcr.io/chroma-core/chroma:latest
-    container_name: graphrag-chromadb
+  # Elasticsearch 向量資料庫 (替代 ChromaDB)
+  elasticsearch:
+    image: elasticsearch:8.15.0
+    container_name: rag-elasticsearch
     ports:
-      - "8000:8000"
+      - "9200:9200"
+      - "9300:9300"
     volumes:
-      - chroma_data:/chroma/chroma
+      - elasticsearch_data:/usr/share/elasticsearch/data
     environment:
-      - CHROMA_SERVER_HOST=0.0.0.0
-      - CHROMA_SERVER_HTTP_PORT=8000
-      - IS_PERSISTENT=TRUE
-      - PERSIST_DIRECTORY=/chroma/chroma
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 40s
     networks:
       - rag-network
     restart: unless-stopped
@@ -58,5 +67,5 @@ networks:
     driver: bridge
 
 volumes:
-  chroma_data:
+  elasticsearch_data:
     driver: local

@@ -14,26 +14,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     STREAMLIT_SERVER_PORT=8501 \
     STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
-# 安裝系統依賴 (Graph RAG 需要的額外套件)
+# 安裝必要的系統依賴 (精簡版，Graph RAG 已禁用)
 RUN apt-get update && apt-get install -y \
     build-essential \
     gcc \
-    g++ \
-    cmake \
-    pkg-config \
-    libffi-dev \
     libssl-dev \
-    libxml2-dev \
-    libxslt1-dev \
-    libjpeg-dev \
-    libpng-dev \
-    libfreetype6-dev \
     libmupdf-dev \
     mupdf-tools \
-    git \
-    wget \
     curl \
-    graphviz \
     && rm -rf /var/lib/apt/lists/*
 
 # 升級 pip 和安裝基礎工具

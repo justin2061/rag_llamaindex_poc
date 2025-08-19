@@ -8,8 +8,16 @@ import streamlit as st
 # RAG System Imports - for factory function
 from config import RAG_SYSTEM_TYPE
 from enhanced_rag_system import EnhancedRAGSystem
-from graph_rag_system import GraphRAGSystem
 from elasticsearch_rag_system import ElasticsearchRAGSystem
+
+# 嘗試導入 Graph RAG 系統，如果失敗則設為 None
+try:
+    from graph_rag_system import GraphRAGSystem
+    GRAPH_RAG_AVAILABLE = True
+except ImportError as e:
+    GraphRAGSystem = None
+    GRAPH_RAG_AVAILABLE = False
+    print(f"Graph RAG 系統不可用: {e}")  # 用 print 而非 st，因為 st 可能還未初始化
 
 def get_rag_system():
     """
@@ -18,8 +26,13 @@ def get_rag_system():
     st.info(f"🚀 正在根據設定 '{RAG_SYSTEM_TYPE}' 初始化 RAG 系統...")
     
     if RAG_SYSTEM_TYPE == "graph":
-        st.session_state.rag_system_type = "Graph RAG"
-        return GraphRAGSystem()
+        if GRAPH_RAG_AVAILABLE:
+            st.session_state.rag_system_type = "Graph RAG"
+            return GraphRAGSystem()
+        else:
+            st.warning("⚠️ Graph RAG 系統不可用（缺少 pyvis 依賴），回退到 Enhanced RAG")
+            st.session_state.rag_system_type = "Enhanced RAG (Graph RAG Fallback)"
+            return EnhancedRAGSystem()
     elif RAG_SYSTEM_TYPE == "elasticsearch":
         st.session_state.rag_system_type = "Elasticsearch RAG"
         return ElasticsearchRAGSystem()

@@ -1,16 +1,17 @@
 version: '3.8'
 
 services:
-  graphrag-app:
+  # RAG 應用程式
+  rag-app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: graphrag-intelligent-assistant
+    container_name: rag-intelligent-assistant
     ports:
       - "8501:8501"
     volumes:
       # 掛載整個應用程式代碼 (開發模式)
-      - .:/app                     # 掛載整個專案目錄
+      - .:/app
       - /app/data                  # 排除 data 目錄 (使用容器內版本)
       - ./data:/app/data           # 重新掛載 data 目錄 (持久化)
       - ./.env:/app/.env           # 掛載環境變數檔案
@@ -26,8 +27,9 @@ services:
       - ELASTICSEARCH_HOST=elasticsearch
       - ELASTICSEARCH_PORT=9200
       - ELASTICSEARCH_SCHEME=http
+      - ELASTICSEARCH_INDEX_NAME=rag_intelligent_assistant
       - ENABLE_ELASTICSEARCH=true
-      - RAG_SYSTEM_TYPE=enhanced
+      - RAG_SYSTEM_TYPE=elasticsearch
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
       interval: 30s
@@ -37,30 +39,84 @@ services:
     restart: unless-stopped
     networks:
       - rag-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
 
-  # Elasticsearch 向量資料庫 (替代 ChromaDB)
+  # Elasticsearch 向量資料庫
   elasticsearch:
-    image: elasticsearch:8.15.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
     container_name: rag-elasticsearch
+    environment:
+      # 基本設定
+      - node.name=rag-elasticsearch
+      - cluster.name=rag-cluster
+      - discovery.type=single-node
+      
+      # 記憶體設定 (可調整)
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      
+      # 安全設定 (開發環境)
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      
+      # 效能調整
+      - bootstrap.memory_lock=true
+      - action.auto_create_index=true
+      
+      # 磁盤空間設定 (開發環境 - 放寬限制)
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - cluster.routing.allocation.disk.watermark.low=90%
+      - cluster.routing.allocation.disk.watermark.high=95%
+      - cluster.routing.allocation.disk.watermark.flood_stage=99%
+    
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    
     ports:
       - "9200:9200"
       - "9300:9300"
+    
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - xpack.security.enrollment.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    
+    networks:
+      - rag-network
+    
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 40s
+    
+    restart: unless-stopped
+  
+  # Kibana (可選 - 用於 Elasticsearch 管理和監控)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    container_name: rag-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
     networks:
       - rag-network
     restart: unless-stopped
+    profiles:
+      - kibana
+      - full
 
 networks:
   rag-network:

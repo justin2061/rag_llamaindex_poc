@@ -45,4 +45,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
 # 預設啟動簡化版應用程式
-CMD ["streamlit", "run", "simple_app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+CMD ["streamlit", "run", "apps/simple_app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]

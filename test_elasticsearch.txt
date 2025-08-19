@@ -1,0 +1,23 @@
+測試文檔：Elasticsearch RAG 系統
+
+這是一個測試文檔，用於驗證 Elasticsearch RAG 系統的功能。
+
+主要功能：
+1. 文檔上傳和處理
+2. 向量嵌入和索引
+3. 智能問答和檢索
+4. 多語言支援（中文、英文）
+
+技術特點：
+- 使用 Elasticsearch 作為向量存儲後端
+- 支援中文分析器
+- 具備水平擴展能力
+- 適合生產環境部署
+
+測試場景：
+- 上傳此文檔到知識庫
+- 驗證文檔被正確索引到 Elasticsearch
+- 測試中文問答功能
+- 確認不會回退到 SimpleVectorStore
+
+這個測試將確保我們的 Elasticsearch 整合修復成功，所有數據都正確存儲在 Elasticsearch 中，而不是 SimpleVectorStore。

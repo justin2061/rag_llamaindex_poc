@@ -176,27 +176,69 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 st.info(f"📚 索引 '{self.index_name}' 已存在")
                 return True
             
-            # 創建索引
-            response = self.elasticsearch_client.indices.create(
-                index=self.index_name,
-                body=index_mapping,
-                ignore=400  # 忽略已存在的錯誤
-            )
-            
-            if response.get('acknowledged', False):
-                st.success(f"✅ 成功創建索引: {self.index_name}")
-                return True
-            else:
-                st.error(f"❌ 索引創建失敗: {response}")
-                return False
+            # 創建索引 - 修復 async/await 兼容性問題
+            try:
+                response = self.elasticsearch_client.indices.create(
+                    index=self.index_name,
+                    body=index_mapping,
+                    ignore=400  # 忽略已存在的錯誤
+                )
+                
+                if response.get('acknowledged', False):
+                    st.success(f"✅ 成功創建索引: {self.index_name}")
+                    return True
+                else:
+                    st.error(f"❌ 索引創建失敗: {response}")
+                    return False
+                    
+            except Exception as create_error:
+                # 如果是 HeadApiResponse async 錯誤，嘗試同步方式
+                error_msg = str(create_error)
+                if "HeadApiResponse" in error_msg or "await" in error_msg:
+                    st.warning(f"⚠️ 檢測到async兼容性問題，嘗試同步方式創建索引...")
+                    try:
+                        # 使用同步 Elasticsearch 客戶端重新初始化
+                        from elasticsearch import Elasticsearch
+                        sync_client = Elasticsearch(
+                            [{'host': self.elasticsearch_config['host'], 'port': self.elasticsearch_config['port']}],
+                            timeout=30,
+                            request_timeout=30
+                        )
+                        
+                        # 測試連接
+                        if sync_client.ping():
+                            # 使用同步客戶端創建索引
+                            response = sync_client.indices.create(
+                                index=self.index_name,
+                                body=index_mapping,
+                                ignore=400
+                            )
+                            # 更新客戶端為同步版本
+                            self.elasticsearch_client = sync_client
+                            st.success(f"✅ 使用同步客戶端成功創建索引: {self.index_name}")
+                            return True
+                        else:
+                            st.error("❌ 同步客戶端無法連接到 Elasticsearch")
+                            return False
+                    except Exception as sync_error:
+                        st.error(f"❌ 同步創建索引也失敗: {str(sync_error)}")
+                        return False
+                else:
+                    st.error(f"❌ 創建索引失敗: {error_msg}")
+                    return False
                 
         except Exception as e:
-            st.error(f"❌ 創建索引失敗: {str(e)}")
+            st.error(f"❌ 創建索引過程出現異常: {str(e)}")
             return False
     
     def _setup_elasticsearch_store(self) -> bool:
         """設置 Elasticsearch 向量存儲"""
         try:
+            # 確保使用正確的同步客戶端
+            if not hasattr(self, 'elasticsearch_client') or not self.elasticsearch_client:
+                st.error("❌ Elasticsearch 客戶端未初始化")
+                return False
+            
             self.elasticsearch_store = ElasticsearchStore(
                 es_client=self.elasticsearch_client,
                 index_name=self.index_name,
@@ -205,11 +247,13 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 metadata_field='metadata'
             )
             
-            st.success("✅ Elasticsearch 向量存儲設置完成 (使用官方實現)")
+            st.success("✅ Elasticsearch 向量存儲設置完成 (使用同步客戶端)")
             return True
             
         except Exception as e:
             st.error(f"❌ Elasticsearch 向量存儲設置失敗: {str(e)}")
+            import traceback
+            st.error(f"詳細錯誤: {traceback.format_exc()}")
             return False
     
     def create_index(self, documents: List[Document]):
@@ -240,15 +284,38 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 storage_context = StorageContext.from_defaults(vector_store=self.elasticsearch_store)
 
                 # 5. 使用 LlamaIndex 的標準方法建立索引
-                self.index = VectorStoreIndex.from_documents(
-                    documents,
-                    storage_context=storage_context,
-                    embed_model=self.embedding_model,
-                    show_progress=True
-                )
+                try:
+                    self.index = VectorStoreIndex.from_documents(
+                        documents,
+                        storage_context=storage_context,
+                        embed_model=self.embedding_model,
+                        show_progress=True
+                    )
 
-                st.success(f"✅ Elasticsearch 索引建立完成！處理了 {len(documents)} 個文檔。")
-                return self.index
+                    if self.index:
+                        st.success(f"✅ Elasticsearch 索引建立完成！處理了 {len(documents)} 個文檔。")
+                        
+                        # 驗證文檔是否真的被插入
+                        try:
+                            stats = self.elasticsearch_client.indices.stats(index=self.index_name)
+                            doc_count = stats['indices'][self.index_name]['total']['docs']['count']
+                            st.info(f"📊 Elasticsearch 實際文檔數: {doc_count}")
+                            
+                            if doc_count == 0:
+                                st.warning("⚠️ 索引創建成功但文檔數為0，可能存在插入問題")
+                        except Exception as stat_e:
+                            st.warning(f"無法獲取索引統計: {stat_e}")
+                        
+                        return self.index
+                    else:
+                        st.error("❌ 索引對象為 None")
+                        return None
+                        
+                except Exception as index_e:
+                    st.error(f"❌ 索引創建過程失敗: {str(index_e)}")
+                    import traceback
+                    st.error(f"索引創建詳細錯誤: {traceback.format_exc()}")
+                    return None
 
             except Exception as e:
                 st.error(f"❌ Elasticsearch 索引建立失敗: {str(e)}")
@@ -503,6 +570,49 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         """獲取詳細的 Elasticsearch 統計資訊"""
         return self.get_enhanced_statistics()
     
+    def delete_documents_by_source(self, source_filename: str) -> bool:
+        """根據來源文件名刪除文檔"""
+        if not self.elasticsearch_client:
+            st.error("❌ Elasticsearch 客戶端未初始化")
+            return False
+        
+        try:
+            # 構建查詢以查找指定來源的文檔
+            query = {
+                "query": {
+                    "term": {
+                        "metadata.source.keyword": source_filename
+                    }
+                }
+            }
+            
+            # 刪除匹配的文檔
+            response = self.elasticsearch_client.delete_by_query(
+                index=self.index_name,
+                body=query
+            )
+            
+            deleted_count = response.get('deleted', 0)
+            if deleted_count > 0:
+                st.success(f"✅ 從 Elasticsearch 中刪除了 {deleted_count} 個文檔塊（來源：{source_filename}）")
+                return True
+            else:
+                st.info(f"📝 在 Elasticsearch 中沒有找到來源為 '{source_filename}' 的文檔")
+                return False
+                
+        except Exception as e:
+            st.error(f"❌ 從 Elasticsearch 刪除文檔失敗: {str(e)}")
+            return False
+    
+    def refresh_index_after_deletion(self):
+        """刪除文檔後刷新索引"""
+        try:
+            if self.elasticsearch_client:
+                self.elasticsearch_client.indices.refresh(index=self.index_name)
+                st.info("🔄 Elasticsearch 索引已刷新")
+        except Exception as e:
+            st.warning(f"索引刷新警告: {str(e)}")
+
     def __del__(self):
         """析構函數：清理資源"""
         try:

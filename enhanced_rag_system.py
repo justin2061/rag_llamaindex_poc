@@ -16,6 +16,8 @@ from rag_system import RAGSystem
 from conversation_memory import ConversationMemory
 from user_file_manager import UserFileManager
 from gemini_ocr import GeminiOCRProcessor
+from embedding_fix import setup_safe_embedding, prevent_openai_fallback
+from immediate_fix import setup_immediate_fix
 # from chroma_vector_store import ChromaVectorStoreManager  # 已改用 Elasticsearch
 
 class EnhancedRAGSystem(RAGSystem):
@@ -100,8 +102,10 @@ class EnhancedRAGSystem(RAGSystem):
         from llama_index.llms.groq import Groq
         from llama_index.core.node_parser import SimpleNodeParser
         from llama_index.core import Settings
-        from rag_system import JinaEmbeddingAPI
         import streamlit as st
+        
+        # 防止 OpenAI 回退並設置安全的嵌入模型
+        prevent_openai_fallback()
         
         # 設定LLM
         if GROQ_API_KEY:
@@ -110,26 +114,19 @@ class EnhancedRAGSystem(RAGSystem):
             st.error("請設定GROQ_API_KEY環境變數")
             return
         
-        # 設定嵌入模型 - 使用 Jina API
+        # 設定安全嵌入模型 - 使用立即修復方案
         try:
-            if JINA_API_KEY:
-                st.info("🚀 使用 Jina Embedding API")
-                embed_model = JinaEmbeddingAPI(
-                    api_key=JINA_API_KEY,
-                    model="jina-embeddings-v3",
-                    task="text-matching"
-                )
-            else:
-                st.warning("⚠️ 未設定 JINA_API_KEY，將使用簡單特徵向量作為後備")
-                embed_model = JinaEmbeddingAPI(
-                    api_key="dummy",  # 觸發後備方案
-                    model="jina-embeddings-v3",
-                    task="text-matching"
-                )
-            st.info("✅ 成功初始化嵌入模型")
+            # 先嘗試立即修復方案
+            embed_model = setup_immediate_fix()
+            st.success("✅ 成功初始化嵌入模型（立即修復版本）")
         except Exception as e:
-            st.error(f"嵌入模型初始化失敗: {str(e)}")
-            return
+            st.warning(f"立即修復失敗: {str(e)}，嘗試原始方案")
+            try:
+                embed_model = setup_safe_embedding(JINA_API_KEY)
+                st.success("✅ 成功初始化嵌入模型")
+            except Exception as e2:
+                st.error(f"嵌入模型初始化失敗: {str(e2)}")
+                return
         
         # 設定全域配置
         Settings.llm = llm
@@ -390,6 +387,9 @@ class EnhancedRAGSystem(RAGSystem):
     
     def load_existing_index(self) -> bool:
         """載入現有的向量索引 (優先使用 Elasticsearch)"""
+        # 確保模型已初始化
+        self._ensure_models_initialized()
+        
         try:
             # 優先嘗試 Elasticsearch
             if self.use_elasticsearch and self.elasticsearch_store:

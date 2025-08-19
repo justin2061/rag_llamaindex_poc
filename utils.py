@@ -17,7 +17,7 @@ try:
 except ImportError as e:
     GraphRAGSystem = None
     GRAPH_RAG_AVAILABLE = False
-    print(f"Graph RAG 系統不可用: {e}")  # 用 print 而非 st，因為 st 可能還未初始化
+    # Graph RAG 依賴不可用，這是正常的（已禁用 Graph RAG 功能）
 
 def get_rag_system():
     """

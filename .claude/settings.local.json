@@ -6,7 +6,8 @@
       "Bash(curl:*)",
       "Bash(docker exec:*)",
       "Bash(docker restart:*)",
-      "Bash(docker logs:*)"
+      "Bash(docker logs:*)",
+      "Bash(docker cp:*)"
     ],
     "deny": []
   }

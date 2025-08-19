@@ -110,6 +110,14 @@ class JinaEmbeddingAPI(BaseEmbedding):
     async def _aget_text_embedding(self, text: str) -> List[float]:
         """異步獲取文本嵌入（回退到同步方法）"""
         return self._get_text_embedding(text)
+    
+    def _get_query_embedding(self, query: str) -> List[float]:
+        """獲取查詢嵌入向量"""
+        return self._get_text_embedding(query)
+    
+    async def _aget_query_embedding(self, query: str) -> List[float]:
+        """異步獲取查詢嵌入向量"""
+        return self._get_query_embedding(query)
 
 def load_pdf_with_pypdf2(pdf_path: str) -> List[Document]:
     """使用PyPDF2載入PDF"""
@@ -166,10 +174,9 @@ class RAGSystem:
             st.error("請設定GROQ_API_KEY環境變數")
             return
         
-        # 設定 Embedding 模型
-        if JINA_API_KEY:
+        # 設定 Embedding 模型 - 總是使用我們的自定義實作
+        if JINA_API_KEY and JINA_API_KEY.strip():
             st.info("🚀 使用 Jina Embedding API")
-            # 使用自定義的 Jina API 調用
             embed_model = JinaEmbeddingAPI(
                 api_key=JINA_API_KEY,
                 model="jina-embeddings-v3",
@@ -185,10 +192,13 @@ class RAGSystem:
                 task="text-matching"
             )
         
-        # 設定全域配置
-        Settings.llm = llm
+        # 先設定 embedding 模型，再設定其他
         Settings.embed_model = embed_model
+        Settings.llm = llm  
         Settings.node_parser = SimpleNodeParser.from_defaults(chunk_size=1024)
+        
+        # 設置標記避免 LlamaIndex 嘗試使用預設的 OpenAI embedding
+        self.models_initialized = True
     
     def load_pdfs(self, pdf_paths: List[str]) -> List[Document]:
         """載入PDF檔案 - 支援多種PDF處理庫"""

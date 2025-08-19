@@ -28,9 +28,9 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --upgrade pip setuptools wheel
 
 # 複製 requirements 檔案並安裝 Python 依賴
-COPY requirements.txt .
+COPY requirements_light.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements_light.txt
 
 # 創建資料目錄和工作目錄結構
 RUN mkdir -p data/pdfs data/index data/user_uploads data/chroma_db
@@ -44,5 +44,5 @@ EXPOSE 8501
 HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
-# 啟動新的主應用程式
-CMD ["streamlit", "run", "main_app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+# 預設啟動簡化版應用程式
+CMD ["streamlit", "run", "simple_app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]

@@ -708,6 +708,184 @@ class EnhancedRAGSystem(RAGSystem):
         
         return stats
     
+    def get_indexed_files(self) -> List[Dict[str, Any]]:
+        """獲取已索引的文件列表"""
+        files = []
+        
+        try:
+            if self.use_elasticsearch and self.elasticsearch_store:
+                # 從 Elasticsearch 獲取文件列表
+                files = self._get_elasticsearch_files()
+            elif hasattr(self.index, 'docstore') and self.index.docstore.docs:
+                # 從 SimpleVectorStore 獲取文件列表
+                files = self._get_simple_vector_store_files()
+        except Exception as e:
+            st.error(f"獲取文件列表時發生錯誤: {str(e)}")
+        
+        return files
+    
+    def _get_elasticsearch_files(self) -> List[Dict[str, Any]]:
+        """從 Elasticsearch 獲取文件列表"""
+        files = []
+        try:
+            # 搜索所有文檔
+            response = self.elasticsearch_client.search(
+                index=self.elasticsearch_store.index_name,
+                body={
+                    "query": {"match_all": {}},
+                    "size": 1000,
+                    "_source": ["metadata", "content"]
+                }
+            )
+            
+            file_map = {}
+            for hit in response['hits']['hits']:
+                metadata = hit['_source'].get('metadata', {})
+                source = metadata.get('source', '未知文件')
+                
+                if source not in file_map:
+                    file_map[source] = {
+                        'id': source,
+                        'name': os.path.basename(source),
+                        'path': source,
+                        'type': metadata.get('file_type', 'unknown'),
+                        'upload_time': metadata.get('upload_time', '未知'),
+                        'size': metadata.get('file_size', 0),
+                        'page_count': metadata.get('pages', 1),
+                        'node_count': 0
+                    }
+                
+                file_map[source]['node_count'] += 1
+            
+            files = list(file_map.values())
+            
+        except Exception as e:
+            st.error(f"從 Elasticsearch 獲取文件列表失敗: {str(e)}")
+        
+        return files
+    
+    def _get_simple_vector_store_files(self) -> List[Dict[str, Any]]:
+        """從 SimpleVectorStore 獲取文件列表"""
+        files = []
+        try:
+            file_map = {}
+            for node in self.index.docstore.docs.values():
+                source = node.metadata.get("source", "未知文件")
+                
+                if source not in file_map:
+                    file_map[source] = {
+                        'id': source,
+                        'name': os.path.basename(source),
+                        'path': source,
+                        'type': node.metadata.get('file_type', 'unknown'),
+                        'upload_time': node.metadata.get('upload_time', '未知'),
+                        'size': node.metadata.get('file_size', 0),
+                        'page_count': node.metadata.get('pages', 1),
+                        'node_count': 0
+                    }
+                
+                file_map[source]['node_count'] += 1
+            
+            files = list(file_map.values())
+            
+        except Exception as e:
+            st.error(f"從 SimpleVectorStore 獲取文件列表失敗: {str(e)}")
+        
+        return files
+    
+    def delete_file_from_knowledge_base(self, file_id: str) -> bool:
+        """從知識庫中刪除指定文件"""
+        try:
+            success = False
+            
+            if self.use_elasticsearch and self.elasticsearch_store:
+                # 從 Elasticsearch 刪除文件
+                success = self._delete_from_elasticsearch(file_id)
+            elif hasattr(self.index, 'docstore'):
+                # 從 SimpleVectorStore 刪除文件
+                success = self._delete_from_simple_vector_store(file_id)
+            
+            if success:
+                # 同時從文件系統刪除（如果存在）
+                self._delete_from_filesystem(file_id)
+                st.success(f"✅ 文件 {os.path.basename(file_id)} 已從知識庫中刪除")
+            
+            return success
+            
+        except Exception as e:
+            st.error(f"刪除文件時發生錯誤: {str(e)}")
+            return False
+    
+    def _delete_from_elasticsearch(self, file_id: str) -> bool:
+        """從 Elasticsearch 刪除文件的所有節點"""
+        try:
+            # 查詢該文件的所有文檔
+            response = self.elasticsearch_client.search(
+                index=self.elasticsearch_store.index_name,
+                body={
+                    "query": {
+                        "term": {
+                            "metadata.source.keyword": file_id
+                        }
+                    },
+                    "size": 1000
+                }
+            )
+            
+            # 刪除所有相關文檔
+            for hit in response['hits']['hits']:
+                self.elasticsearch_client.delete(
+                    index=self.elasticsearch_store.index_name,
+                    id=hit['_id']
+                )
+            
+            # 刷新索引
+            self.elasticsearch_client.indices.refresh(
+                index=self.elasticsearch_store.index_name
+            )
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"從 Elasticsearch 刪除文件失敗: {str(e)}")
+            return False
+    
+    def _delete_from_simple_vector_store(self, file_id: str) -> bool:
+        """從 SimpleVectorStore 刪除文件的所有節點"""
+        try:
+            nodes_to_delete = []
+            
+            # 找到所有屬於該文件的節點
+            for node_id, node in self.index.docstore.docs.items():
+                if node.metadata.get("source") == file_id:
+                    nodes_to_delete.append(node_id)
+            
+            # 刪除節點
+            for node_id in nodes_to_delete:
+                del self.index.docstore.docs[node_id]
+                # 也從向量存儲中刪除
+                if hasattr(self.index.vector_store, 'delete'):
+                    self.index.vector_store.delete(node_id)
+            
+            # 保存索引
+            if hasattr(self.index, 'storage_context') and hasattr(self.index.storage_context, 'persist'):
+                self.index.storage_context.persist()
+            
+            return len(nodes_to_delete) > 0
+            
+        except Exception as e:
+            st.error(f"從 SimpleVectorStore 刪除文件失敗: {str(e)}")
+            return False
+    
+    def _delete_from_filesystem(self, file_id: str):
+        """從文件系統刪除文件（如果存在）"""
+        try:
+            if os.path.exists(file_id):
+                os.remove(file_id)
+                print(f"✅ 已從文件系統刪除: {file_id}")
+        except Exception as e:
+            print(f"⚠️ 從文件系統刪除文件失敗: {str(e)}")
+    
     def get_enhanced_statistics(self) -> Dict[str, Any]:
         """取得增強的統計資訊"""
         base_stats = self.get_document_statistics()

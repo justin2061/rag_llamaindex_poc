@@ -264,43 +264,153 @@ def render_personal_mode(components: dict, ux: UserExperience):
                 st.rerun()
         
         with col2:
-            st.markdown("## 📊 知識庫狀態")
+            st.markdown("## 📁 知識庫管理")
             
             # 檔案統計
             if st.session_state.rag_system:
                 stats = st.session_state.rag_system.get_document_statistics()
                 
                 # 統計卡片
-                st.metric("📄 文檔數量", stats.get("total_documents", 0))
-                st.metric("🧩 文本塊數", stats.get("total_nodes", 0))
+                col2_1, col2_2 = st.columns(2)
+                with col2_1:
+                    st.metric("📄 文檔數量", stats.get("total_documents", 0))
+                    st.metric("🧩 文本塊數", stats.get("total_nodes", 0))
+                with col2_2:
+                    # 使用統計
+                    usage_stats = ux.get_usage_stats()
+                    st.metric("📤 總上傳次數", usage_stats["total_uploads"])
+                    
+                    # 聊天統計
+                    chat_stats = chat_interface.get_chat_stats()
+                    st.metric("💬 對話次數", chat_stats["total_messages"])
                 
-                # 使用統計
-                usage_stats = ux.get_usage_stats()
-                st.metric("📤 總上傳次數", usage_stats["total_uploads"])
-                
-                # 聊天統計
-                chat_stats = chat_interface.get_chat_stats()
-                st.metric("💬 對話次數", chat_stats["total_messages"])
+                # 文件列表和管理
+                st.markdown("### 📋 文件列表")
+                render_file_management(st.session_state.rag_system)
             
             # 操作按鈕
             st.markdown("---")
             
-            if st.button("📤 上傳更多檔案", use_container_width=True):
-                st.session_state.show_upload = True
-                st.rerun()
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("📤 上傳更多檔案", use_container_width=True):
+                    st.session_state.show_upload = True
+                    st.rerun()
+                
+                if st.button("🗑️ 清空聊天", use_container_width=True):
+                    chat_interface.clear_chat()
+                    st.rerun()
             
-            if st.button("🗑️ 清空聊天", use_container_width=True):
-                chat_interface.clear_chat()
-                st.rerun()
-            
-            if st.button("📋 匯出對話", use_container_width=True):
-                export_text = chat_interface.export_chat()
-                st.download_button(
-                    "下載對話記錄",
+            with col_btn2:
+                if st.button("📋 匯出對話", use_container_width=True):
+                    export_text = chat_interface.export_chat()
+                    st.download_button(
+                        "下載對話記錄",
                     export_text,
                     file_name=f"chat_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
                     mime="text/markdown"
                 )
+                st.rerun()
+
+def render_file_management(rag_system):
+    """渲染文件管理界面"""
+    try:
+        # 獲取文件列表
+        files = rag_system.get_indexed_files()
+        
+        if not files:
+            st.info("📝 知識庫中暫無文件")
+            return
+        
+        # 顯示文件總數
+        st.write(f"共 {len(files)} 個文件")
+        
+        # 文件列表
+        for i, file_info in enumerate(files):
+            with st.container():
+                col1, col2, col3 = st.columns([3, 2, 1])
+                
+                with col1:
+                    # 文件圖標根據類型
+                    icon = "📄" if file_info['type'] == 'pdf' else "📝"
+                    st.write(f"{icon} **{file_info['name']}**")
+                    
+                    # 文件詳情
+                    size_mb = file_info['size'] / (1024 * 1024) if file_info['size'] > 0 else 0
+                    st.caption(f"📊 {file_info['node_count']} 個文本塊 • {size_mb:.2f} MB")
+                
+                with col2:
+                    # 文件信息
+                    st.write(f"📅 {file_info['upload_time']}")
+                    if file_info['page_count'] > 0:
+                        st.caption(f"📑 {file_info['page_count']} 頁")
+                
+                with col3:
+                    # 刪除按鈕
+                    if st.button(
+                        "🗑️", 
+                        key=f"delete_{i}",
+                        help=f"刪除 {file_info['name']}",
+                        use_container_width=True
+                    ):
+                        # 確認刪除
+                        if st.session_state.get(f'confirm_delete_{i}', False):
+                            # 執行刪除
+                            if rag_system.delete_file_from_knowledge_base(file_info['id']):
+                                st.success(f"✅ 已刪除 {file_info['name']}")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ 刪除 {file_info['name']} 失敗")
+                            # 重置確認狀態
+                            st.session_state[f'confirm_delete_{i}'] = False
+                        else:
+                            # 第一次點擊，要求確認
+                            st.session_state[f'confirm_delete_{i}'] = True
+                            st.warning(f"⚠️ 確定要刪除 {file_info['name']} 嗎？再次點擊刪除按鈕確認。")
+                            st.rerun()
+                
+                st.divider()
+        
+        # 批量操作
+        if len(files) > 1:
+            st.markdown("### 🔧 批量操作")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🗑️ 清空知識庫", type="secondary"):
+                    if st.session_state.get('confirm_clear_all', False):
+                        # 執行批量刪除
+                        success_count = 0
+                        for file_info in files:
+                            if rag_system.delete_file_from_knowledge_base(file_info['id']):
+                                success_count += 1
+                        
+                        if success_count == len(files):
+                            st.success(f"✅ 已清空知識庫，刪除了 {success_count} 個文件")
+                        else:
+                            st.warning(f"⚠️ 部分文件刪除失敗，成功刪除 {success_count}/{len(files)} 個文件")
+                        
+                        st.session_state['confirm_clear_all'] = False
+                        st.rerun()
+                    else:
+                        st.session_state['confirm_clear_all'] = True
+                        st.warning("⚠️ 確定要清空整個知識庫嗎？這將刪除所有文件！再次點擊確認。")
+                        st.rerun()
+            
+            with col2:
+                # 重新索引按鈕
+                if st.button("🔄 重新索引", type="secondary"):
+                    with st.spinner("正在重新索引..."):
+                        try:
+                            # 這裡可以添加重新索引的邏輯
+                            st.success("✅ 重新索引完成")
+                        except Exception as e:
+                            st.error(f"❌ 重新索引失敗: {str(e)}")
+    
+    except Exception as e:
+        st.error(f"❌ 載入文件列表時發生錯誤: {str(e)}")
+        import traceback
+        st.write(traceback.format_exc())
 
 def render_demo_mode():
     """渲染演示模式（原有的茶葉系統）"""

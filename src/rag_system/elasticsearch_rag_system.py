@@ -36,11 +36,11 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
     
     def __init__(self, elasticsearch_config: Optional[Dict] = None):
         """初始化 Elasticsearch RAG 系統"""
-        super().__init__(use_elasticsearch=True, use_chroma=False)  # ES RAG系統使用 Elasticsearch
-        
+        # 首先設置 elasticsearch_config，避免在父類初始化時引用錯誤
         self.elasticsearch_config = elasticsearch_config or self._get_default_config()
         self.elasticsearch_client = None
         self.elasticsearch_store = None
+        
         # 使用配置文件中的索引名稱
         from config.config import ELASTICSEARCH_INDEX_NAME
         self.index_name = ELASTICSEARCH_INDEX_NAME
@@ -56,7 +56,11 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         self.embedding_model = None
         self.llm_model = None
         
-        # 自動初始化 Elasticsearch 連接和存儲
+        # 調用父類初始化，但禁用其 Elasticsearch 自動初始化
+        super().__init__(use_elasticsearch=False, use_chroma=False)  # 先設置為 False
+        
+        # 然後手動設置標誌並初始化 Elasticsearch 
+        self.use_elasticsearch = True
         self._initialize_elasticsearch()
     
     def _initialize_elasticsearch(self):

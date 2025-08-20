@@ -87,12 +87,12 @@ class EnhancedRAGSystem(RAGSystem):
                 )
                 return True
             else:
-                st.warning("⚠️ 無法連接到 Elasticsearch，將使用 SimpleVectorStore")
+                st.error("❌ 無法連接到 Elasticsearch，系統無法正常運行")
                 self.use_elasticsearch = False
                 return False
                 
         except Exception as e:
-            st.warning(f"⚠️ Elasticsearch 初始化失敗: {str(e)}，將使用 SimpleVectorStore")
+            st.error(f"❌ Elasticsearch 初始化失敗: {str(e)}，系統無法正常運行")
             self.use_elasticsearch = False
             return False
     
@@ -433,26 +433,16 @@ class EnhancedRAGSystem(RAGSystem):
                         st.success("✅ 成功使用 Elasticsearch 建立索引")
                         
                     except Exception as e:
-                        st.warning(f"Elasticsearch 索引創建失敗: {str(e)}")
-                        st.info("回退到 SimpleVectorStore...")
-                        self.use_elasticsearch = False
+                        st.error(f"❌ Elasticsearch 索引創建失敗: {str(e)}")
+                        st.error("❌ 系統只支援 Elasticsearch 後端，請檢查 Elasticsearch 配置")
+                        return None
                 
-                # 如果 Elasticsearch 失敗或未啟用，使用 SimpleVectorStore
-                if not self.use_elasticsearch:
-                    st.info("使用 SimpleVectorStore 建立索引...")
-                    index = VectorStoreIndex.from_documents(documents)
-                    st.success("✅ 成功使用 SimpleVectorStore 建立索引")
-                    
-                    # 持久化索引
-                    from config.config import INDEX_DIR
-                    index.storage_context.persist(persist_dir=INDEX_DIR)
-                    st.success("✅ 索引已持久化保存")
-                
+                # 只使用 Elasticsearch，不提供回退選項
                 if index:
                     self.index = index
                     return index
                 else:
-                    st.error("索引創建失敗")
+                    st.error("❌ 索引創建失敗，請檢查 Elasticsearch 配置")
                     return None
                     
             except Exception as e:
@@ -460,21 +450,20 @@ class EnhancedRAGSystem(RAGSystem):
                 return None
     
     def load_existing_index(self) -> bool:
-        """載入現有的向量索引 (優先使用 Elasticsearch)"""
+        """載入現有的向量索引（僅支援 Elasticsearch）"""
         # 確保模型已初始化
         self._ensure_models_initialized()
         
         try:
-            # 優先嘗試 Elasticsearch
+            # 只嘗試 Elasticsearch
             if self.use_elasticsearch and self.elasticsearch_store:
-                st.info("嘗試從 Elasticsearch 載入索引...")
+                st.info("從 Elasticsearch 載入索引...")
                 try:
                     # 載入前做維度驗證
                     from config.config import ELASTICSEARCH_VECTOR_DIMENSION
                     if not self._validate_embedding_dimension(ELASTICSEARCH_VECTOR_DIMENSION):
                         st.error("❌ 維度不一致，停止載入索引。")
-                        self.use_elasticsearch = False
-                        # 繼續嘗試回退到 SimpleVectorStore
+                        return False
                     
                     # 檢查 Elasticsearch 是否有資料
                     es_stats = self.elasticsearch_client.indices.stats(
@@ -496,35 +485,18 @@ class EnhancedRAGSystem(RAGSystem):
                         st.success(f"✅ 成功從 Elasticsearch 載入 {doc_count} 個文檔")
                         return True
                     else:
-                        st.info("Elasticsearch 索引為空")
+                        st.info("📝 Elasticsearch 索引為空，請先上傳文檔")
+                        return False
                         
                 except Exception as e:
-                    st.warning(f"Elasticsearch 載入失敗: {str(e)}")
-                    self.use_elasticsearch = False
-            
-            # 回退到 SimpleVectorStore
-            from config.config import INDEX_DIR
-            if os.path.exists(INDEX_DIR) and os.listdir(INDEX_DIR):
-                st.info("嘗試從 SimpleVectorStore 載入索引...")
-                try:
-                    from llama_index.core import load_index_from_storage
-                    from llama_index.core.storage.storage_context import StorageContext
-                    
-                    storage_context = StorageContext.from_defaults(persist_dir=INDEX_DIR)
-                    self.index = load_index_from_storage(storage_context)
-                    self.setup_query_engine()
-                    st.success("✅ 成功載入現有索引 (SimpleVectorStore)")
-                    return True
-                    
-                except Exception as e:
-                    st.error(f"載入 SimpleVectorStore 失敗: {str(e)}")
+                    st.error(f"❌ Elasticsearch 載入失敗: {str(e)}")
                     return False
             else:
-                st.info("沒有找到現有索引檔案")
+                st.error("❌ 系統只支援 Elasticsearch 後端，請檢查 Elasticsearch 配置")
                 return False
                 
         except Exception as e:
-            st.error(f"載入索引時發生未預期錯誤: {str(e)}")
+            st.error(f"❌ 載入索引時發生未預期錯誤: {str(e)}")
             return False
     
     
@@ -590,7 +562,7 @@ class EnhancedRAGSystem(RAGSystem):
             return False
     
     def get_document_statistics(self) -> dict:
-        """取得文件統計資訊 (支援 Elasticsearch 和 SimpleVectorStore)"""
+        """取得文件統計資訊 (僅支援 Elasticsearch)"""
         if not self.index:
             return {}
         
@@ -659,66 +631,26 @@ class EnhancedRAGSystem(RAGSystem):
                         print(f"🔧 當前ES客戶端類型: {type(self.elasticsearch_client)}")
                     import traceback
                     print(f"🔍 EnhancedRAGSystem完整錯誤堆疊: {traceback.format_exc()}")
-                    st.warning(f"無法從 Elasticsearch 獲取統計資訊: {str(es_e)}")
-                    # 回退到 SimpleVectorStore 統計
-                    return self._get_simple_vector_store_stats()
+                    st.error(f"無法從 Elasticsearch 獲取統計資訊: {str(es_e)}")
             else:
-                # 使用 SimpleVectorStore 統計
-                return self._get_simple_vector_store_stats()
+                st.error("❌ Elasticsearch 後端未啟用，系統無法獲取統計資訊")
             
         except Exception as e:
             st.error(f"獲取文檔統計時發生錯誤: {str(e)}")
         
         return stats
     
-    def _get_simple_vector_store_stats(self) -> dict:
-        """獲取 SimpleVectorStore 統計資訊"""
-        stats = {
-            "total_documents": 0,
-            "total_nodes": 0,
-            "document_details": [],
-            "total_pages": 0
-        }
-        
-        try:
-            doc_info = {}
-            if hasattr(self.index, 'docstore') and self.index.docstore.docs:
-                for node in self.index.docstore.docs.values():
-                    source = node.metadata.get("source", "未知")
-                    pages = node.metadata.get("pages", 1)
-                    
-                    if source not in doc_info:
-                        doc_info[source] = {
-                            "name": source,
-                            "pages": pages,
-                            "node_count": 0
-                        }
-                    doc_info[source]["node_count"] += 1
-                
-                stats["total_documents"] = len(doc_info)
-                stats["total_nodes"] = len(self.index.docstore.docs)
-                stats["document_details"] = list(doc_info.values())
-                stats["total_pages"] = sum(doc["pages"] for doc in doc_info.values())
-                
-                st.info(f"📊 從 SimpleVectorStore 獲取統計: {stats['total_documents']} 個文檔")
-            else:
-                st.warning("索引中沒有找到文檔資料")
-        except Exception as e:
-            st.error(f"獲取 SimpleVectorStore 統計時發生錯誤: {str(e)}")
-        
-        return stats
     
     def get_indexed_files(self) -> List[Dict[str, Any]]:
-        """獲取已索引的文件列表"""
+        """獲取已索引的文件列表（僅支援 Elasticsearch）"""
         files = []
         
         try:
             if self.use_elasticsearch and self.elasticsearch_store:
                 # 從 Elasticsearch 獲取文件列表
                 files = self._get_elasticsearch_files()
-            elif hasattr(self.index, 'docstore') and self.index.docstore.docs:
-                # 從 SimpleVectorStore 獲取文件列表
-                files = self._get_simple_vector_store_files()
+            else:
+                st.warning("⚠️ 只支援 Elasticsearch 後端，請確保 Elasticsearch 已正確配置")
         except Exception as e:
             st.error(f"獲取文件列表時發生錯誤: {str(e)}")
         
@@ -764,34 +696,6 @@ class EnhancedRAGSystem(RAGSystem):
         
         return files
     
-    def _get_simple_vector_store_files(self) -> List[Dict[str, Any]]:
-        """從 SimpleVectorStore 獲取文件列表"""
-        files = []
-        try:
-            file_map = {}
-            for node in self.index.docstore.docs.values():
-                source = node.metadata.get("source", "未知文件")
-                
-                if source not in file_map:
-                    file_map[source] = {
-                        'id': source,
-                        'name': os.path.basename(source),
-                        'path': source,
-                        'type': node.metadata.get('file_type', 'unknown'),
-                        'upload_time': node.metadata.get('upload_time', '未知'),
-                        'size': node.metadata.get('file_size', 0),
-                        'page_count': node.metadata.get('pages', 1),
-                        'node_count': 0
-                    }
-                
-                file_map[source]['node_count'] += 1
-            
-            files = list(file_map.values())
-            
-        except Exception as e:
-            st.error(f"從 SimpleVectorStore 獲取文件列表失敗: {str(e)}")
-        
-        return files
     
     def delete_file_from_knowledge_base(self, file_id: str) -> bool:
         """從知識庫中刪除指定文件"""
@@ -801,9 +705,9 @@ class EnhancedRAGSystem(RAGSystem):
             if self.use_elasticsearch and self.elasticsearch_store:
                 # 從 Elasticsearch 刪除文件
                 success = self._delete_from_elasticsearch(file_id)
-            elif hasattr(self.index, 'docstore'):
-                # 從 SimpleVectorStore 刪除文件
-                success = self._delete_from_simple_vector_store(file_id)
+            else:
+                st.error("❌ 只支援 Elasticsearch 後端刪除操作")
+                success = False
             
             if success:
                 # 同時從文件系統刪除（如果存在）
@@ -850,32 +754,6 @@ class EnhancedRAGSystem(RAGSystem):
             st.error(f"從 Elasticsearch 刪除文件失敗: {str(e)}")
             return False
     
-    def _delete_from_simple_vector_store(self, file_id: str) -> bool:
-        """從 SimpleVectorStore 刪除文件的所有節點"""
-        try:
-            nodes_to_delete = []
-            
-            # 找到所有屬於該文件的節點
-            for node_id, node in self.index.docstore.docs.items():
-                if node.metadata.get("source") == file_id:
-                    nodes_to_delete.append(node_id)
-            
-            # 刪除節點
-            for node_id in nodes_to_delete:
-                del self.index.docstore.docs[node_id]
-                # 也從向量存儲中刪除
-                if hasattr(self.index.vector_store, 'delete'):
-                    self.index.vector_store.delete(node_id)
-            
-            # 保存索引
-            if hasattr(self.index, 'storage_context') and hasattr(self.index.storage_context, 'persist'):
-                self.index.storage_context.persist()
-            
-            return len(nodes_to_delete) > 0
-            
-        except Exception as e:
-            st.error(f"從 SimpleVectorStore 刪除文件失敗: {str(e)}")
-            return False
     
     def _delete_from_filesystem(self, file_id: str):
         """從文件系統刪除文件（如果存在）"""

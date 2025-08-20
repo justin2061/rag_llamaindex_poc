@@ -503,6 +503,22 @@ MAX_CONTEXT_LENGTH=4000
 - Timeout handling
 - Fallback responses for service unavailability
 
+#### Recent System Fixes (2025-08-20)
+**Elasticsearch 配置錯誤修復:**
+- **問題**: `'ElasticsearchRAGSystem' object has no attribute 'elasticsearch_config'`
+- **原因**: 初始化順序問題，父類調用子類方法時 elasticsearch_config 尚未設置
+- **解決方案**: 
+  1. 重新排列 `__init__` 方法中的初始化順序
+  2. 先設置 elasticsearch_config 再調用父類初始化
+  3. 禁用父類的自動 Elasticsearch 初始化，改為手動控制
+- **驗證**: 容器測試成功，系統正常運作，可獲取文件列表
+
+**SimpleVectorStore 完全移除:**
+- 移除所有 SimpleVectorStore 回退邏輯
+- 系統現在純使用 Elasticsearch 作為向量後端
+- 簡化代碼結構，提高系統穩定性
+- 測試結果：2 個文檔正常索引，查詢功能正常
+
 ### Development Best Practices
 
 #### Code Organization

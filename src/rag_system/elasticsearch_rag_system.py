@@ -730,6 +730,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 files.append({
                     'name': source_file,
                     'chunk_count': chunk_count,
+                    'node_count': chunk_count,  # 添加 node_count 字段兼容性
                     'total_size_bytes': total_size,
                     'size': total_size,  # 為了兼容性保留 size 字段
                     'size_mb': round(total_size / (1024 * 1024), 1) if total_size > 0 else 0,

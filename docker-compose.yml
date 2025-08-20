@@ -43,6 +43,43 @@ services:
       elasticsearch:
         condition: service_healthy
 
+  # FastAPI 智能問答 API 服務
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: rag-api
+    ports:
+      - "8002:8002"
+    volumes:
+      - .:/api
+      - ./data:/api/data
+      - ./.env:/api/.env
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - JINA_API_KEY=${JINA_API_KEY}
+      - PYTHONPATH=/api
+      # Elasticsearch 配置
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_SCHEME=http
+      - ELASTICSEARCH_INDEX_NAME=rag_intelligent_assistant
+      - ENABLE_ELASTICSEARCH=true
+      - RAG_SYSTEM_TYPE=elasticsearch
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - rag-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
   # Elasticsearch 向量資料庫
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0

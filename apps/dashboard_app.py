@@ -198,6 +198,16 @@ def render_sidebar():
             st.session_state.current_page = "chat"
             st.rerun()
         
+        # Elasticsearch 對話記錄統計按鈕
+        if st.button(
+            "📊 對話記錄統計", 
+            key="nav_conversation_stats",
+            use_container_width=True,
+            type="primary" if st.session_state.current_page == "conversation_stats" else "secondary"
+        ):
+            st.session_state.current_page = "conversation_stats"
+            st.rerun()
+        
         st.markdown("---")
         
         # 系統狀態
@@ -543,9 +553,7 @@ def render_chat():
         if st.button("📋 匯出對話", use_container_width=True):
             export_chat_history()
     
-    with col3:
-        if st.button("📊 ES 對話記錄", use_container_width=True):
-            show_elasticsearch_conversations()
+    # col3 留空或用於其他功能
     
     with col4:
         if st.session_state.chat_history:
@@ -833,6 +841,13 @@ def export_chat_history():
         mime="text/markdown"
     )
 
+def render_conversation_stats():
+    """渲染對話記錄統計頁面"""
+    st.markdown("# 📊 對話記錄統計")
+    st.markdown("Elasticsearch 中的對話記錄分析和統計")
+    
+    show_elasticsearch_conversations()
+
 def main():
     """主函數"""
     # 載入樣式
@@ -855,6 +870,8 @@ def main():
         render_knowledge_management()
     elif st.session_state.current_page == "chat":
         render_chat()
+    elif st.session_state.current_page == "conversation_stats":
+        render_conversation_stats()
 
 if __name__ == "__main__":
     main()

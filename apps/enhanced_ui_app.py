@@ -195,21 +195,65 @@ def render_personal_mode(components: dict, ux: UserExperience):
             
             # 處理用戶問題
             if user_question and st.session_state.rag_system:
-                # 添加用戶訊息
-                chat_interface.add_message("user", user_question)
+                def handle_query(question):
+                    """處理用戶查詢（同步）"""
+                    if 'rag_system' not in st.session_state or not st.session_state.rag_system:
+                        st.error("請先初始化 RAG 系統")
+                        return
+
+                    system = st.session_state.rag_system
+
+                    with st.spinner("🔍 正在查詢..."):
+                        try:
+                            print(f"🔍 UI層開始查詢: {question}")
+                            print(f"🔧 使用系統類型: {type(system)}")
+
+                            # 同步呼叫查詢介面（優先使用帶記憶的查詢）
+                            if hasattr(system, 'query_with_context'):
+                                response = system.query_with_context(question)
+                            else:
+                                response = system.query(question)
+
+                            print(f"✅ UI層查詢完成，響應長度: {len(str(response)) if response else 0}")
+
+                            if response:
+                                # 顯示回答
+                                with st.chat_message("assistant"):
+                                    st.write(response)
+
+                                    # 顯示參考來源
+                                    st.expander("📚 參考來源").write("• 向量索引\n• 用戶文檔")
+                            else:
+                                st.warning("未找到相關資訊")
+
+                        except Exception as e:
+                            error_msg = str(e)
+                            error_type = type(e).__name__
+
+                            print(f"❌ UI層捕獲錯誤:")
+                            print(f"   錯誤類型: {error_type}")
+                            print(f"   錯誤消息: {error_msg}")
+
+                            # 特別檢查 ObjectApiResponse 錯誤
+                            if "ObjectApiResponse" in error_msg or "await" in error_msg:
+                                print("🚨 UI層檢測到ObjectApiResponse錯誤！")
+                                print(f"   系統類型: {type(system)}")
+                                if hasattr(system, 'elasticsearch_client'):
+                                    print(f"   ES客戶端類型: {type(system.elasticsearch_client)}")
+
+                            import traceback
+                            print(f"🔍 UI層完整錯誤堆疊:")
+                            print(traceback.format_exc())
+
+                            st.error(f"查詢時發生錯誤: {error_msg}")
+                            st.write("抱歉，處理您的問題時發生錯誤。")
+                            st.write(traceback.format_exc())
+
+                # 直接呼叫同步查詢處理
+                handle_query(user_question)
                 
-                # 設定思考狀態
-                chat_interface.set_thinking(True)
-                
-                # 獲取 AI 回答
-                with st.spinner("AI 正在思考..."):
-                    response = st.session_state.rag_system.query_with_context(user_question)
-                
-                # 添加 AI 回答
-                chat_interface.add_message("assistant", response, sources=["用戶上傳的文檔"])
-                
-                # 清除思考狀態
-                chat_interface.set_thinking(False)
+                # 處理用戶問題
+                chat_interface.add_message("assistant", "處理完成")
                 
                 st.rerun()
         

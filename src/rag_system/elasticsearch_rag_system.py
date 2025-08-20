@@ -113,35 +113,34 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         }
     
     def _setup_elasticsearch_client(self) -> bool:
-        """設置 Elasticsearch 客戶端（LlamaIndex 需要異步客戶端）"""
+        """設置 Elasticsearch 客戶端（統一使用同步客戶端）"""
         if not ELASTICSEARCH_AVAILABLE:
             st.error("❌ Elasticsearch 依賴未安裝")
             return False
-        
+            
         try:
             config = self.elasticsearch_config
             
-            # LlamaIndex ElasticsearchStore 需要異步客戶端
-            from elasticsearch import AsyncElasticsearch
+            # 統一使用同步客戶端 - LlamaIndex ElasticsearchStore 需要同步客戶端
+            from elasticsearch import Elasticsearch
             
-            # 建立連接配置 - 使用異步客戶端
+            # 建立連接配置 - 使用同步客戶端
             es_config = {
-                'hosts': [{'host': config['host'], 'port': config['port'], 'scheme': config['scheme']}],
+                'hosts': [{
+                    'host': config['host'],
+                    'port': config['port'],
+                    'scheme': config['scheme']
+                }],
                 'request_timeout': config['timeout'],
-                'max_retries': config['max_retries'],
-                'retry_on_timeout': True,
-                'verify_certs': config.get('verify_certs', False)
+                'max_retries': 3,
+                'retry_on_timeout': True
             }
             
-            # 如果有認證信息
+            # 添加驗證信息（如果配置了）
             if config.get('username') and config.get('password'):
                 es_config['basic_auth'] = (config['username'], config['password'])
             
-            # 創建異步客戶端（LlamaIndex 要求）
-            self.elasticsearch_client = AsyncElasticsearch(**es_config)
-            
-            # 異步客戶端需要額外的同步客戶端來做連接測試和統計
-            from elasticsearch import Elasticsearch
+            # 創建同步客戶端（ElasticsearchStore 要求）
             sync_client = Elasticsearch(**es_config)
             
             # 測試連接
@@ -155,18 +154,19 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 except:
                     pass
                 
-                # 保存同步客戶端用於統計查詢
+                # 統一使用同步客戶端
+                self.elasticsearch_client = sync_client
                 self.sync_elasticsearch_client = sync_client
+                
+                print(f"✅ ES客戶端初始化完成，類型: {type(self.elasticsearch_client)}")
                 
                 return True
             else:
-                st.error(f"❌ 無法連接到 Elasticsearch: {config['host']}:{config['port']}")
-                st.error("💡 請確認 ES 服務已啟動且網絡可達")
+                st.error("❌ 無法連接到 Elasticsearch")
                 return False
                 
         except Exception as e:
-            st.error(f"❌ Elasticsearch 連接失敗: {str(e)}")
-            st.error(f"🔧 連接配置: {config['scheme']}://{config['host']}:{config['port']}")
+            st.error(f"❌ Elasticsearch 客戶端設置失敗: {str(e)}")
             return False
     
     def _create_elasticsearch_index(self) -> bool:
@@ -307,17 +307,55 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             st.error(f"❌ 創建索引時發生錯誤: {str(e)}")
             return False
                 
+    def query(self, query_str: str, **kwargs) -> str:
+        """執行查詢並返回結果"""
+        if not self.query_engine:
+            return "❌ 查詢引擎尚未設置。請先上傳並索引文檔。"
+        
+        try:
+            print(f"🔍 開始執行查詢: {query_str}")
+            print(f"🔧 查詢引擎類型: {type(self.query_engine)}")
+            
+            response = self.query_engine.query(query_str)
+            
+            print(f"✅ 查詢完成，響應類型: {type(response)}")
+            return str(response)
+            
+        except Exception as e:
+            error_msg = str(e)
+            error_type = type(e).__name__
+            
+            print(f"❌ 查詢錯誤詳情:")
+            print(f"   錯誤類型: {error_type}")
+            print(f"   錯誤消息: {error_msg}")
+            
+            # 檢查是否為 ObjectApiResponse 錯誤
+            if "ObjectApiResponse" in error_msg or "await" in error_msg:
+                print("🚨 檢測到ObjectApiResponse錯誤！")
+                print(f"   查詢引擎: {type(self.query_engine)}")
+                if hasattr(self.query_engine, '_retriever'):
+                    print(f"   檢索器: {type(self.query_engine._retriever)}")
+                
+            import traceback
+            print(f"🔍 完整錯誤堆疊:")
+            print(traceback.format_exc())
+            
+            st.error(f"查詢時發生錯誤: {error_msg}")
+            st.write(traceback.format_exc())
+            return f"查詢失敗: {error_msg}"
+                
     def _setup_elasticsearch_store(self) -> bool:
         """設置 Elasticsearch 向量存儲"""
         try:
-            # 確保使用正確的同步客戶端 - ElasticsearchStore需要同步客戶端
-            sync_client = getattr(self, 'sync_elasticsearch_client', None)
-            if not sync_client:
-                st.error("❌ Elasticsearch 同步客戶端未初始化")
+            # 使用統一的同步客戶端
+            if not hasattr(self, 'elasticsearch_client') or not self.elasticsearch_client:
+                st.error("❌ Elasticsearch 客戶端未初始化")
                 return False
             
+            print(f"🔧 設置ElasticsearchStore，客戶端類型: {type(self.elasticsearch_client)}")
+            
             self.elasticsearch_store = ElasticsearchStore(
-                es_client=sync_client,
+                es_client=self.elasticsearch_client,  # 現在統一使用同步客戶端
                 index_name=self.index_name,
                 vector_field=self.elasticsearch_config['vector_field'],
                 text_field=self.elasticsearch_config['text_field'],
@@ -811,14 +849,15 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     st.error(f"❌ 向量搜尋也失敗: {str(e)}")
                     return []
         
-        # 創建並返回混合檢索器 - 使用同步客戶端
-        sync_client = getattr(self, 'sync_elasticsearch_client', None)
-        if not sync_client:
-            st.error("❌ 同步ES客戶端未初始化，無法創建查詢引擎")
+        # 創建並返回混合檢索器 - 使用統一同步客戶端
+        if not hasattr(self, 'elasticsearch_client') or not self.elasticsearch_client:
+            st.error("❌ ES客戶端未初始化，無法創建查詢引擎")
             return None
             
+        print(f"🔧 創建ESHybridRetriever，使用客戶端類型: {type(self.elasticsearch_client)}")
+            
         return ESHybridRetriever(
-            es_client=sync_client,
+            es_client=self.elasticsearch_client,  # 統一使用同步客戶端
             index_name=self.index_name,
             embedding_model=self.embedding_model,
             top_k=10  # Change the top_k value from 5 to 10

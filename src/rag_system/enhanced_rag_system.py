@@ -2,6 +2,7 @@ import os
 from typing import List, Optional, Dict, Any
 import streamlit as st
 from llama_index.core import VectorStoreIndex, Document, Settings
+import traceback
 
 # Elasticsearch 支援
 try:
@@ -65,6 +66,7 @@ class EnhancedRAGSystem(RAGSystem):
                 es_config['basic_auth'] = (ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD)
             
             self.elasticsearch_client = Elasticsearch(**es_config)
+            print(f"🔧 EnhancedRAGSystem ES客戶端類型: {type(self.elasticsearch_client)}")
             
             # 檢查連接
             if self.elasticsearch_client.ping():
@@ -190,6 +192,7 @@ class EnhancedRAGSystem(RAGSystem):
                 
         except Exception as e:
             st.error(f"查詢時發生錯誤: {str(e)}")
+            st.write(traceback.format_exc())
             return "抱歉，處理您的問題時發生錯誤。"
     
     def process_uploaded_files(self, uploaded_files) -> List[Document]:
@@ -400,6 +403,7 @@ class EnhancedRAGSystem(RAGSystem):
                         # 強制刷新 ES 索引
                         if hasattr(self, 'elasticsearch_client') and self.elasticsearch_client:
                             try:
+                                print(f"🔄 EnhancedRAGSystem刷新ES索引，客戶端類型: {type(self.elasticsearch_client)}")
                                 # 使用正確的索引名稱
                                 index_name = getattr(self, 'index_name', None)
                                 if not index_name and hasattr(self, 'elasticsearch_store'):
@@ -605,6 +609,7 @@ class EnhancedRAGSystem(RAGSystem):
                     stats["index_size_mb"] = round(index_size / 1024 / 1024, 2)
                     
                     # 從 Elasticsearch 獲取文檔類型統計
+                    print(f"🔍 EnhancedRAGSystem執行ES搜尋，客戶端類型: {type(self.elasticsearch_client)}")
                     search_result = self.elasticsearch_client.search(
                         index=index_name,
                         body={
@@ -619,6 +624,10 @@ class EnhancedRAGSystem(RAGSystem):
                             }
                         }
                     )
+                    print(f"✅ EnhancedRAGSystem ES查詢響應類型: {type(search_result)}")
+                    if hasattr(search_result, '__await__'):
+                        print("🚨 EnhancedRAGSystem檢測到awaitable response - 異步客戶端錯誤！")
+                        raise Exception("EnhancedRAGSystem同步客戶端返回了awaitable response")
                     
                     source_buckets = search_result.get('aggregations', {}).get('source_types', {}).get('buckets', [])
                     for bucket in source_buckets:
@@ -631,6 +640,14 @@ class EnhancedRAGSystem(RAGSystem):
                     st.info(f"📊 從 Elasticsearch 獲取統計: {stats['total_documents']} 個文檔")
                     
                 except Exception as es_e:
+                    error_msg = str(es_e)
+                    print(f"❌ EnhancedRAGSystem ES統計錯誤: {error_msg}")
+                    print(f"🔧 錯誤類型: {type(es_e)}")
+                    if "ObjectApiResponse" in error_msg or "await" in error_msg or "coroutine" in error_msg:
+                        print("🚨 EnhancedRAGSystem檢測到ObjectApiResponse錯誤！")
+                        print(f"🔧 當前ES客戶端類型: {type(self.elasticsearch_client)}")
+                    import traceback
+                    print(f"🔍 EnhancedRAGSystem完整錯誤堆疊: {traceback.format_exc()}")
                     st.warning(f"無法從 Elasticsearch 獲取統計資訊: {str(es_e)}")
                     # 回退到 SimpleVectorStore 統計
                     return self._get_simple_vector_store_stats()

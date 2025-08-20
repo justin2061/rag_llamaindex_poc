@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile
     container_name: rag-intelligent-assistant
     ports:
-      - "8501:8501"
+      - "8602:8501"
     volumes:
       # 掛載整個應用程式代碼 (開發模式)
       - .:/app
@@ -118,11 +118,11 @@ services:
         hard: 65536
     
     ports:
-      - "9200:9200"
-      - "9300:9300"
+      - "127.0.0.1:9200:9200"
+      - "127.0.0.1:9300:9300"
     
     volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
+      - ./elasticsearch_data:/usr/share/elasticsearch/data
     
     networks:
       - rag-network
@@ -144,7 +144,7 @@ services:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
       - xpack.security.enabled=false
     ports:
-      - "5601:5601"
+      - "127.0.0.1:5601:5601"
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -158,7 +158,4 @@ services:
 networks:
   rag-network:
     driver: bridge
-
-volumes:
-  elasticsearch_data:
-    driver: local
+    

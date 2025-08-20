@@ -686,7 +686,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 "aggs": {
                     "unique_sources": {
                         "terms": {
-                            "field": "metadata.source",
+                            "field": "metadata.source.keyword",
                             "size": 1000
                         },
                         "aggs": {
@@ -697,7 +697,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                             },
                             "file_type": {
                                 "terms": {
-                                    "field": "metadata.file_type",
+                                    "field": "metadata.type.keyword",
                                     "size": 1
                                 }
                             },

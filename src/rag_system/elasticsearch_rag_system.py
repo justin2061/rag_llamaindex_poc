@@ -746,21 +746,18 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     query_embedding = self.embedding_model._get_query_embedding(query_text)
                     print(f"✅ 查詢向量維度: {len(query_embedding) if query_embedding else 'None'}")
                     
-                    # 2. ES 混合查詢 (向量 + 關鍵字)
+                    # 2. ES 混合查詢 (向量 + 關鍵字) - 使用 Elasticsearch 8.x 語法
                     hybrid_query = {
                         "size": self.top_k,
+                        "knn": {
+                            "field": "embedding",
+                            "query_vector": query_embedding,
+                            "k": self.top_k,
+                            "num_candidates": self.top_k * 2
+                        },
                         "query": {
                             "bool": {
                                 "should": [
-                                    # 向量相似度搜尋 (語義搜尋)
-                                    {
-                                        "knn": {
-                                            "embedding": {
-                                                "vector": query_embedding,
-                                                "k": self.top_k
-                                            }
-                                        }
-                                    },
                                     # BM25 關鍵字搜尋 (詞彙搜尋)
                                     {
                                         "match": {
@@ -857,13 +854,11 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     
                     vector_query = {
                         "size": self.top_k,
-                        "query": {
-                            "knn": {
-                                "embedding": {
-                                    "vector": query_embedding,
-                                    "k": self.top_k
-                                }
-                            }
+                        "knn": {
+                            "field": "embedding",
+                            "query_vector": query_embedding,
+                            "k": self.top_k,
+                            "num_candidates": self.top_k * 2
                         },
                         "_source": ["content", "metadata"]
                     }

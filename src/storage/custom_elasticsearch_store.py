@@ -97,7 +97,7 @@ class CustomElasticsearchStore(VectorStore):
                 "size": query.similarity_top_k or 10
             }
         else:
-            # 向量相似性搜索
+            # 向量相似性搜索 - Elasticsearch 8.x KNN 語法
             search_body = {
                 "knn": {
                     "field": self.vector_field,

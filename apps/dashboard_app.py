@@ -288,35 +288,35 @@ def render_dashboard():
     st.markdown("<br>", unsafe_allow_html=True)
     
     # 系統信息卡片
-    col1, col2 = st.columns([1, 1])
+    # col1, col2 = st.columns([1, 1])
     
-    with col1:
-        st.markdown("""
-        <div class="dashboard-card">
-            <h3>🔧 系統配置</h3>
-            <ul style="list-style: none; padding: 0;">
-                <li><strong>RAG 系統:</strong> Elasticsearch RAG</li>
-                <li><strong>LLM 模型:</strong> Groq Llama-3.3-70B</li>
-                <li><strong>嵌入模型:</strong> HuggingFace all-MiniLM-L6-v2</li>
-                <li><strong>向量存儲:</strong> Elasticsearch</li>
-                <li><strong>OCR 支援:</strong> {} Gemini Vision</li>
-            </ul>
-        </div>
-        """.format("✅" if GEMINI_API_KEY else "❌"), unsafe_allow_html=True)
+    # with col1:
+    #     st.markdown("""
+    #     <div class="dashboard-card">
+    #         <h3>🔧 系統配置</h3>
+    #         <ul style="list-style: none; padding: 0;">
+    #             <li><strong>RAG 系統:</strong> Elasticsearch RAG</li>
+    #             <li><strong>LLM 模型:</strong> Groq Llama-3.3-70B</li>
+    #             <li><strong>嵌入模型:</strong> HuggingFace all-MiniLM-L6-v2</li>
+    #             <li><strong>向量存儲:</strong> Elasticsearch</li>
+    #             <li><strong>OCR 支援:</strong> {} Gemini Vision</li>
+    #         </ul>
+    #     </div>
+    #     """.format("✅" if GEMINI_API_KEY else "❌"), unsafe_allow_html=True)
     
-    with col2:
-        st.markdown("""
-        <div class="dashboard-card">
-            <h3>📈 性能指標</h3>
-            <ul style="list-style: none; padding: 0;">
-                <li><strong>查詢響應時間:</strong> < 3 秒</li>
-                <li><strong>支援文檔格式:</strong> PDF, DOCX, TXT, 圖片</li>
-                <li><strong>最大文檔量:</strong> 100,000+</li>
-                <li><strong>並發用戶:</strong> 10-50+</li>
-                <li><strong>記憶體使用:</strong> 500MB-2GB</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+    # with col2:
+    #     st.markdown("""
+    #     <div class="dashboard-card">
+    #         <h3>📈 性能指標</h3>
+    #         <ul style="list-style: none; padding: 0;">
+    #             <li><strong>查詢響應時間:</strong> < 3 秒</li>
+    #             <li><strong>支援文檔格式:</strong> PDF, DOCX, TXT, 圖片</li>
+    #             <li><strong>最大文檔量:</strong> 100,000+</li>
+    #             <li><strong>並發用戶:</strong> 10-50+</li>
+    #             <li><strong>記憶體使用:</strong> 500MB-2GB</li>
+    #         </ul>
+    #     </div>
+    #     """, unsafe_allow_html=True)
     
     # 最近活動
     st.markdown("## 📋 最近活動")

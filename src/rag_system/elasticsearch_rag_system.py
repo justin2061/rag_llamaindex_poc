@@ -15,11 +15,10 @@ from llama_index.core.postprocessor import SimilarityPostprocessor
 # Elasticsearch integration
 try:
     from elasticsearch import Elasticsearch
-    from llama_index.vector_stores.elasticsearch import ElasticsearchStore
     ELASTICSEARCH_AVAILABLE = True
 except ImportError:
     ELASTICSEARCH_AVAILABLE = False
-    st.warning("⚠️ Elasticsearch dependencies not installed. Install with: pip install elasticsearch llama-index-vector-stores-elasticsearch")
+    st.warning("⚠️ Elasticsearch dependencies not installed. Install with: pip install elasticsearch")
 
 # 繼承增強版系統
 from .enhanced_rag_system import EnhancedRAGSystem
@@ -354,13 +353,14 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             
             print(f"🔧 設置ElasticsearchStore，客戶端類型: {type(self.elasticsearch_client)}")
             
-            self.elasticsearch_store = ElasticsearchStore(
-                es_client=self.elasticsearch_client,  # 現在統一使用同步客戶端
+            # 使用自定義同步 Elasticsearch Store 避免 async 問題
+            from ..storage.custom_elasticsearch_store import CustomElasticsearchStore
+            self.elasticsearch_store = CustomElasticsearchStore(
+                es_client=self.elasticsearch_client,
                 index_name=self.index_name,
                 vector_field=self.elasticsearch_config['vector_field'],
                 text_field=self.elasticsearch_config['text_field'],
-                metadata_field='metadata',
-                embedding_dim=self.elasticsearch_config.get('dimension', 1024)
+                metadata_field='metadata'
             )
             
             st.success("✅ Elasticsearch 向量存儲設置完成 (使用同步客戶端)")

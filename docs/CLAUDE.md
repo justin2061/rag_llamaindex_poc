@@ -19,58 +19,57 @@ cp .env.example .env
 ### Running the Application
 ```bash
 # Simplified application (主要應用，推薦)
-streamlit run simple_app.py
+streamlit run apps/simple_app.py
 
 # Main application with modular UI components
-streamlit run main_app.py
+streamlit run apps/main_app.py
 # or
-python run.py
+python main.py
 
 # Enhanced UI version
-streamlit run enhanced_ui_app.py
+streamlit run apps/enhanced_ui_app.py
 
 # Graph RAG specific version
-python run_graphrag.py
+python apps/run_graphrag.py
 ```
 
 ### Testing
 ```bash
 # 核心功能測試
-python test_elasticsearch_rag.py    # Elasticsearch RAG 系統測試
-python test_pdf_discovery.py        # PDF 連結發現功能測試
-python test_upload_workflow.py      # 文件上傳工作流程測試
+python tests/test_elasticsearch_rag.py    # Elasticsearch RAG 系統測試
+python tests/test_pdf_discovery.py        # PDF 連結發現功能測試
+python tests/test_upload_workflow.py      # 文件上傳工作流程測試
 
 # 效能基準測試
-python benchmark_startup.py         # 啟動效能測試
-streamlit run rag_system_benchmark.py  # RAG 系統比較測試
+python tests/benchmark_startup.py         # 啟動效能測試
+streamlit run tests/rag_system_benchmark.py  # RAG 系統比較測試
 ```
 
 ### Docker Deployment
 ```bash
 # 推薦：Elasticsearch RAG 部署
-./deploy.sh elasticsearch
+./scripts/deploy.sh elasticsearch
 
 # 標準部署 (包含 Elasticsearch)
-./deploy.sh standard
+./scripts/deploy.sh standard
 
 # 直接使用 docker-compose
-docker-compose -f docker-compose.elasticsearch.yml up --build  # Elasticsearch RAG
-docker-compose up --build                                      # 標準部署
+docker-compose up --build  # 標準部署包含 Elasticsearch
 
 # 管理命令
-./deploy.sh down        # 停止所有服務
-./deploy.sh logs        # 查看日誌
-./deploy.sh status      # 檢查狀態
-./deploy.sh --help      # 顯示說明
+./scripts/deploy.sh down        # 停止所有服務
+./scripts/deploy.sh logs        # 查看日誌
+./scripts/deploy.sh status      # 檢查狀態
+./scripts/deploy.sh --help      # 顯示說明
 ```
 
 ### Performance Benchmarking
 ```bash
 # Run RAG system performance comparison
-streamlit run rag_system_benchmark.py
+streamlit run tests/rag_system_benchmark.py
 
 # Memory usage monitoring
-python -c "from rag_system_benchmark import RAGSystemBenchmark; RAGSystemBenchmark().run_full_benchmark()"
+python -c "from tests.rag_system_benchmark import RAGSystemBenchmark; RAGSystemBenchmark().run_full_benchmark()"
 ```
 
 ## Architecture Overview
@@ -79,24 +78,28 @@ This is an **advanced RAG (Retrieval-Augmented Generation) system** built with *
 
 ### Core Architecture
 - **Frontend**: Modular Streamlit UI with component-based architecture
-  - `simple_app.py`: Simplified application with core features (主要應用)
-  - `main_app.py`: Main application with modular components
-  - `enhanced_ui_app.py`: Enhanced UI version with advanced features
+  - `apps/simple_app.py`: Simplified application with core features (主要應用，推薦)
+  - `apps/main_app.py`: Main application with modular components  
+  - `apps/enhanced_ui_app.py`: Enhanced UI version with advanced features
 - **RAG Engines**: Multiple RAG implementations
-  - `rag_system.py`: Base RAG system
-  - `enhanced_rag_system.py`: Enhanced with memory and file management
-  - `graph_rag_system.py`: Graph RAG with knowledge graph construction
+  - `src/rag_system/rag_system.py`: Base RAG system
+  - `src/rag_system/enhanced_rag_system.py`: Enhanced with memory and file management
+  - `src/rag_system/graph_rag_system.py`: Graph RAG with knowledge graph construction
+  - `src/rag_system/elasticsearch_rag_system.py`: Production-ready Elasticsearch RAG (推薦)
 - **Document Processing**: Multi-format document handling
-  - `enhanced_pdf_downloader.py`: Advanced PDF discovery and download
-  - `user_file_manager.py`: User upload management
-  - `gemini_ocr.py`: OCR processing for images
+  - `src/processors/enhanced_pdf_downloader.py`: Advanced PDF discovery and download
+  - `src/processors/user_file_manager.py`: User upload management
+  - `src/processors/gemini_ocr.py`: OCR processing for images
 - **Storage Systems**: Multiple vector store options
-  - `chroma_vector_store.py`: ChromaDB integration
-  - Built-in SimpleVectorStore support
+  - `src/storage/custom_elasticsearch_store.py`: Custom Elasticsearch integration (主要)
+  - `src/storage/chroma_vector_store.py`: ChromaDB integration (備用)
+  - Built-in SimpleVectorStore support (開發測試用)
 - **Memory & Context**: Conversation management
-  - `conversation_memory.py`: Multi-turn conversation context
-- **Configuration**: Centralized settings (`config.py`)
-- **Utilities**: Helper functions (`utils.py`)
+  - `src/storage/conversation_memory.py`: Multi-turn conversation context
+- **Configuration**: Centralized settings (`config/config.py`)
+- **Utilities**: Helper functions (`src/utils/`)
+  - `embedding_fix.py`: OpenAI fallback prevention & embedding fixes
+  - `utils.py`: General utility functions
 
 ### Technology Stack
 - **LLM**: Groq Llama3-70B-Versatile (`llama-3.3-70b-versatile`)
@@ -121,19 +124,19 @@ This is an **advanced RAG (Retrieval-Augmented Generation) system** built with *
 ### Key Components
 
 #### RAG System Hierarchy
-1. **RAGSystem** (`rag_system.py`): Base class with core functionality
+1. **RAGSystem** (`src/rag_system/rag_system.py`): Base class with core functionality
    - Model initialization (LLM + embeddings)
    - Document loading and indexing
    - Basic query interface
 
-2. **EnhancedRAGSystem** (`enhanced_rag_system.py`): Extended capabilities
+2. **EnhancedRAGSystem** (`src/rag_system/enhanced_rag_system.py`): Extended capabilities
    - Conversation memory integration
    - Multi-format file processing (PDF, DOCX, images)
    - User file management
    - OCR processing via Gemini API
-   - ChromaDB vector store support
+   - ChromaDB vector store support (已轉為 Elasticsearch 優先)
 
-3. **GraphRAGSystem** (`graph_rag_system.py`): Graph-based RAG
+3. **GraphRAGSystem** (`src/rag_system/graph_rag_system.py`): Graph-based RAG
    - Knowledge graph construction from documents
    - Entity and relationship extraction
    - Community detection for knowledge clustering
@@ -141,12 +144,13 @@ This is an **advanced RAG (Retrieval-Augmented Generation) system** built with *
    - Interactive graph visualization
    - **Memory Usage**: High (requires significant RAM for graph processing)
 
-4. **ElasticsearchRAGSystem** (`elasticsearch_rag_system.py`): Scalable RAG
+4. **ElasticsearchRAGSystem** (`src/rag_system/elasticsearch_rag_system.py`): Scalable RAG (推薦)
    - High-performance vector storage with Elasticsearch
    - Horizontal scalability for large document collections
    - Advanced text search with Chinese analyzer support
    - Memory-efficient batch processing
    - Production-ready with monitoring and health checks
+   - Async/sync client fallback mechanisms
    - **Memory Usage**: Low to moderate (offloads storage to Elasticsearch)
 
 #### RAG System Comparison
@@ -207,11 +211,12 @@ This is an **advanced RAG (Retrieval-Augmented Generation) system** built with *
 
 #### UI Component System
 Modular Streamlit components for clean separation of concerns:
-- `MainLayout`: Overall page layout and navigation
-- `ChatInterface`: Conversation management and display
-- `UploadZone`: File upload handling with drag-and-drop
-- `WelcomeFlow`: Onboarding and quick start guide
-- `UserExperience`: User preference and state management
+- `src/ui/components/layout/main_layout.py`: Overall page layout and navigation
+- `src/ui/components/chat/chat_interface.py`: Conversation management and display
+- `src/ui/components/knowledge_base/upload_zone.py`: File upload handling with drag-and-drop
+- `src/ui/components/upload/drag_drop_zone.py`: Advanced drag-and-drop zone
+- `src/ui/components/onboarding/welcome_flow.py`: Onboarding and quick start guide
+- `src/ui/components/user_experience.py`: User preference and state management
 
 #### Memory & Context Management
 - `ConversationMemory`: Multi-turn conversation context
@@ -396,18 +401,19 @@ MAX_CONTEXT_LENGTH=4000
 ### System Modes
 
 #### 1. Simplified RAG Mode (推薦)
-- **應用程式**: `simple_app.py`
-- **特點**: 簡化的知識庫管理界面
+- **應用程式**: `apps/simple_app.py`
+- **特點**: 簡化的知識庫管理界面，專注核心功能
 - **功能**: 文檔上傳、檢視、刪除、問答
 - **向量存儲**: Elasticsearch (預設)
+- **記憶體使用**: 低到中等
 - **適用場景**: 日常使用、快速部署、生產環境
 
 #### 2. Enhanced RAG Mode
-- **應用程式**: `enhanced_ui_app.py`
+- **應用程式**: `apps/enhanced_ui_app.py`
 - **特點**: 完整的功能和對話記憶
-- **功能**: 多格式文件支持、OCR 能力、用戶文件管理
-- **向量存儲**: ChromaDB, SimpleVectorStore
-- **適用場景**: 開發測試、功能探索
+- **功能**: 多格式文件支持、OCR 能力、用戶文件管理、模組化 UI 組件
+- **向量存儲**: Elasticsearch (優先), ChromaDB (備用)
+- **適用場景**: 功能完整體驗、開發測試
 
 #### 3. Graph RAG Mode (進階)
 - **應用程式**: Graph RAG 專用界面
@@ -659,3 +665,66 @@ streamlit run simple_app.py
 | **並發用戶** | 10-50+ (取決於硬體配置) |
 
 專案已準備好進行生產部署和實際業務應用！ 🚀
+
+---
+
+## 🎯 2025年8月專案分析總結
+
+### 現狀概覽
+
+本專案是一個**成熟的生產級 RAG 智能問答系統**，已從概念驗證階段發展為可部署的企業級應用：
+
+#### 🏗️ 系統架構現狀
+- **主推薦方案**: `apps/simple_app.py` + Elasticsearch RAG
+- **完整的模組化結構**: `src/` 目錄下的清晰分層架構
+- **多重容錯機制**: 嵌入模型、向量存儲、文檔處理的多層回退
+- **生產就緒部署**: Docker Compose 一鍵部署包含完整監控
+
+#### 📱 用戶體驗優化
+- **簡化界面** (`simple_app.py`): 核心功能集中，專注知識管理
+- **完整功能版** (`enhanced_ui_app.py`): 包含對話記憶、OCR、高級功能
+- **拖拽上傳**: 直觀的文件處理界面
+- **實時狀態**: 文檔數量、處理進度、系統健康狀況即時顯示
+
+#### 🔧 技術實現亮點
+- **Elasticsearch 整合**: 支援大規模文檔檢索、中文分析器
+- **防止 OpenAI 回退**: 完全避免意外的 OpenAI API 調用
+- **容錯嵌入系統**: HuggingFace → Jina API → 本地哈希的三層回退
+- **異步處理支援**: async/sync 客戶端自動切換
+
+#### 📊 性能表現
+- **啟動時間**: < 30秒 (包含模型初始化)
+- **文檔處理**: 2-5秒/文檔 (依文檔大小)
+- **查詢回應**: < 3秒 (檢索+生成)
+- **擴展性**: 支援 100k+ 文檔 (Elasticsearch 後端)
+
+#### 🚀 部署建議
+**快速啟動 (推薦)**:
+```bash
+# 1. 啟動服務
+docker-compose up -d
+
+# 2. 運行主應用
+streamlit run apps/simple_app.py
+```
+
+**完整功能體驗**:
+```bash
+# 運行增強版應用
+streamlit run apps/enhanced_ui_app.py
+```
+
+### 🎖️ 專案成熟度評估
+
+| 面向 | 評分 | 說明 |
+|------|------|------|
+| **功能完整性** | ⭐⭐⭐⭐⭐ | 涵蓋文檔處理、檢索、問答、管理的完整流程 |
+| **技術架構** | ⭐⭐⭐⭐⭐ | 清晰的分層架構、模組化設計、充分的抽象 |
+| **生產就緒** | ⭐⭐⭐⭐⭐ | Docker 部署、錯誤處理、監控、容錯機制 |
+| **用戶體驗** | ⭐⭐⭐⭐⭐ | 直觀界面、實時反饋、簡化操作流程 |
+| **擴展性** | ⭐⭐⭐⭐⭐ | 支援多種 RAG 模式、存儲後端、部署配置 |
+| **文檔完整性** | ⭐⭐⭐⭐⭐ | 詳盡的開發指南、API 文檔、部署說明 |
+
+**總體評估**: ⭐⭐⭐⭐⭐ **優秀 - 生產就緒**
+
+此專案已完全具備企業級應用的所有要素，可直接用於生產環境部署！

@@ -1,9 +1,15 @@
 import streamlit as st
 import os
+import sys
 from datetime import datetime
-from enhanced_pdf_downloader import EnhancedPDFDownloader
-from enhanced_rag_system import EnhancedRAGSystem
-from config import PAGE_TITLE, PAGE_ICON, GROQ_API_KEY, WEB_SOURCES, GEMINI_API_KEY
+from pathlib import Path
+
+# 添加項目根目錄到 Python 路徑
+sys.path.append(str(Path(__file__).parent.parent))
+
+from src.processors.enhanced_pdf_downloader import EnhancedPDFDownloader
+from src.rag_system.enhanced_rag_system import EnhancedRAGSystem
+from config.config import PAGE_TITLE, PAGE_ICON, GROQ_API_KEY, WEB_SOURCES, GEMINI_API_KEY
 
 # 導入新的 UI 組件
 from components.user_experience import UserExperience

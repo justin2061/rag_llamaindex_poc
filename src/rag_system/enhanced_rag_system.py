@@ -7,8 +7,8 @@ import traceback
 # Elasticsearch 支援
 try:
     from elasticsearch import Elasticsearch
-    from llama_index.vector_stores.elasticsearch import ElasticsearchStore
     from llama_index.core.storage.storage_context import StorageContext
+    from ..storage.custom_elasticsearch_store import CustomElasticsearchStore
     ELASTICSEARCH_AVAILABLE = True
 except ImportError:
     ELASTICSEARCH_AVAILABLE = False
@@ -77,13 +77,13 @@ class EnhancedRAGSystem(RAGSystem):
                     self.use_elasticsearch = False
                     return False
 
-                # 建立 vector store
-                self.elasticsearch_store = ElasticsearchStore(
+                # 建立 vector store（使用自定義實現避免 async/await 問題）
+                self.elasticsearch_store = CustomElasticsearchStore(
                     es_client=self.elasticsearch_client,
                     index_name=ELASTICSEARCH_INDEX_NAME,
                     vector_field="embedding",
                     text_field="content",
-                    embedding_dim=ELASTICSEARCH_VECTOR_DIMENSION,
+                    metadata_field="metadata"
                 )
                 return True
             else:
@@ -378,11 +378,6 @@ class EnhancedRAGSystem(RAGSystem):
                             st.error("❌ 維度不一致，停止建立索引。")
                             return None
 
-                        # 建立 storage context
-                        storage_context = StorageContext.from_defaults(
-                            vector_store=self.elasticsearch_store
-                        )
-                        
                         # 創建索引 - 增加詳細日誌
                         print(f"🚀 開始使用 ES 建立索引，文檔數量: {len(documents)}")
                         st.info(f"📊 準備向量化 {len(documents)} 個文檔")
@@ -395,10 +390,25 @@ class EnhancedRAGSystem(RAGSystem):
                             if hasattr(doc, 'metadata') and doc.metadata:
                                 print(f"   元數據: {doc.metadata}")
                         
-                        index = VectorStoreIndex.from_documents(
-                            documents, 
-                            storage_context=storage_context
+                        # 建立 storage context
+                        storage_context = StorageContext.from_defaults(
+                            vector_store=self.elasticsearch_store
                         )
+                        
+                        # 先創建空索引，然後逐個添加文檔以避免 async 問題
+                        index = VectorStoreIndex([], storage_context=storage_context)
+                        
+                        # 逐個添加文檔到索引
+                        st.info("正在逐個添加文檔到索引...")
+                        progress_bar = st.progress(0)
+                        for i, doc in enumerate(documents):
+                            try:
+                                index.insert(doc)
+                                progress_bar.progress((i + 1) / len(documents))
+                            except Exception as doc_error:
+                                st.warning(f"文檔 {i+1} 添加失敗: {str(doc_error)}")
+                                continue
+                        progress_bar.empty()
                         
                         # 強制刷新 ES 索引
                         if hasattr(self, 'elasticsearch_client') and self.elasticsearch_client:
@@ -473,12 +483,13 @@ class EnhancedRAGSystem(RAGSystem):
                     doc_count = es_stats['indices'][self.elasticsearch_store.index_name]['total']['docs']['count']
                     
                     if doc_count > 0:
-                        # 從 Elasticsearch 重建索引
+                        # 從 Elasticsearch 重建索引 - 使用同步方式
                         storage_context = StorageContext.from_defaults(
                             vector_store=self.elasticsearch_store
                         )
-                        self.index = VectorStoreIndex.from_vector_store(
-                            vector_store=self.elasticsearch_store,
+                        # 直接創建索引實例而不使用 from_vector_store
+                        self.index = VectorStoreIndex(
+                            nodes=[],
                             storage_context=storage_context
                         )
                         self.setup_query_engine()

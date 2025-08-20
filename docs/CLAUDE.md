@@ -18,7 +18,12 @@ cp .env.example .env
 
 ### Running the Application
 ```bash
-# Simplified application (主要應用，推薦)
+# NEW: Dashboard application with navigation (最新，推薦)
+streamlit run apps/dashboard_app.py
+# or
+python run_dashboard.py
+
+# Simplified application (簡化版)
 streamlit run apps/simple_app.py
 
 # Main application with modular UI components
@@ -78,7 +83,8 @@ This is an **advanced RAG (Retrieval-Augmented Generation) system** built with *
 
 ### Core Architecture
 - **Frontend**: Modular Streamlit UI with component-based architecture
-  - `apps/simple_app.py`: Simplified application with core features (主要應用，推薦)
+  - `apps/dashboard_app.py`: **NEW** Dashboard with navigation (最新，推薦)
+  - `apps/simple_app.py`: Simplified application with core features
   - `apps/main_app.py`: Main application with modular components  
   - `apps/enhanced_ui_app.py`: Enhanced UI version with advanced features
 - **RAG Engines**: Multiple RAG implementations
@@ -400,22 +406,33 @@ MAX_CONTEXT_LENGTH=4000
 
 ### System Modes
 
-#### 1. Simplified RAG Mode (推薦)
+#### 1. Dashboard Mode (最新推薦)
+- **應用程式**: `apps/dashboard_app.py`
+- **特點**: 現代化導航界面，左側工具欄設計
+- **功能**: 
+  - 📊 **Dashboard**: 系統狀態概覽、統計信息、最近活動
+  - 📚 **知識庫管理**: 文檔上傳、列表檢視、單獨刪除、批量操作
+  - 💬 **智能問答**: 對話界面、聊天歷史、問答管理
+- **向量存儲**: Elasticsearch (預設)
+- **記憶體使用**: 低到中等
+- **適用場景**: **企業級應用、完整功能體驗、生產環境**
+
+#### 2. Simplified RAG Mode
 - **應用程式**: `apps/simple_app.py`
 - **特點**: 簡化的知識庫管理界面，專注核心功能
 - **功能**: 文檔上傳、檢視、刪除、問答
 - **向量存儲**: Elasticsearch (預設)
 - **記憶體使用**: 低到中等
-- **適用場景**: 日常使用、快速部署、生產環境
+- **適用場景**: 快速測試、輕量部署
 
-#### 2. Enhanced RAG Mode
+#### 3. Enhanced RAG Mode
 - **應用程式**: `apps/enhanced_ui_app.py`
 - **特點**: 完整的功能和對話記憶
 - **功能**: 多格式文件支持、OCR 能力、用戶文件管理、模組化 UI 組件
 - **向量存儲**: Elasticsearch (優先), ChromaDB (備用)
 - **適用場景**: 功能完整體驗、開發測試
 
-#### 3. Graph RAG Mode (進階)
+#### 4. Graph RAG Mode (進階)
 - **應用程式**: Graph RAG 專用界面
 - **特點**: 知識圖譜構建和視覺化
 - **功能**: 實體關係抽取、社群檢測、圖譜推理
@@ -675,12 +692,13 @@ streamlit run simple_app.py
 本專案是一個**成熟的生產級 RAG 智能問答系統**，已從概念驗證階段發展為可部署的企業級應用：
 
 #### 🏗️ 系統架構現狀
-- **主推薦方案**: `apps/simple_app.py` + Elasticsearch RAG
+- **主推薦方案**: `apps/dashboard_app.py` + Elasticsearch RAG (最新)
 - **完整的模組化結構**: `src/` 目錄下的清晰分層架構
 - **多重容錯機制**: 嵌入模型、向量存儲、文檔處理的多層回退
 - **生產就緒部署**: Docker Compose 一鍵部署包含完整監控
 
 #### 📱 用戶體驗優化
+- **Dashboard 界面** (`dashboard_app.py`): 現代化導航設計，三大功能區域
 - **簡化界面** (`simple_app.py`): 核心功能集中，專注知識管理
 - **完整功能版** (`enhanced_ui_app.py`): 包含對話記憶、OCR、高級功能
 - **拖拽上傳**: 直觀的文件處理界面
@@ -699,12 +717,20 @@ streamlit run simple_app.py
 - **擴展性**: 支援 100k+ 文檔 (Elasticsearch 後端)
 
 #### 🚀 部署建議
-**快速啟動 (推薦)**:
+**最新推薦 (Dashboard)**:
 ```bash
 # 1. 啟動服務
 docker-compose up -d
 
-# 2. 運行主應用
+# 2. 運行 Dashboard 應用
+streamlit run apps/dashboard_app.py
+# or 
+python run_dashboard.py
+```
+
+**快速測試**:
+```bash
+# 運行簡化版應用
 streamlit run apps/simple_app.py
 ```
 

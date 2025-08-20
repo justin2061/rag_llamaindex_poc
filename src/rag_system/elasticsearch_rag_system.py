@@ -36,7 +36,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
     
     def __init__(self, elasticsearch_config: Optional[Dict] = None):
         """初始化 Elasticsearch RAG 系統"""
-        super().__init__(use_elasticsearch=False, use_chroma=False)  # ES RAG系統自己管理Elasticsearch
+        super().__init__(use_elasticsearch=True, use_chroma=False)  # ES RAG系統使用 Elasticsearch
         
         self.elasticsearch_config = elasticsearch_config or self._get_default_config()
         self.elasticsearch_client = None
@@ -66,16 +66,22 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 if self._create_elasticsearch_index():
                     if self._setup_elasticsearch_store():
                         st.success("✅ Elasticsearch RAG 系統初始化完成")
+                        # 確保 use_elasticsearch 標誌正確設置
+                        self.use_elasticsearch = True
                         return True
                     else:
                         st.error("❌ Elasticsearch 向量存儲設置失敗")
+                        self.use_elasticsearch = False
                 else:
                     st.error("❌ Elasticsearch 索引創建失敗")
+                    self.use_elasticsearch = False
             else:
                 st.error("❌ Elasticsearch 客戶端連接失敗")
+                self.use_elasticsearch = False
             return False
         except Exception as e:
             st.error(f"❌ Elasticsearch 初始化失敗: {str(e)}")
+            self.use_elasticsearch = False
             return False
     
     def _ensure_models_initialized(self):

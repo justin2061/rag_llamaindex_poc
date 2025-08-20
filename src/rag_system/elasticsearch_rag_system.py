@@ -12,6 +12,9 @@ from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.postprocessor import SimilarityPostprocessor
 
+# 對話記錄管理
+from src.storage.conversation_history import ConversationHistoryManager
+
 # Elasticsearch integration
 try:
     from elasticsearch import Elasticsearch
@@ -55,6 +58,9 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         # 模型實例
         self.embedding_model = None
         self.llm_model = None
+        
+        # 初始化對話記錄管理器
+        self.conversation_manager = ConversationHistoryManager(elasticsearch_config)
         
         # 調用父類初始化，但禁用其 Elasticsearch 自動初始化
         super().__init__(use_elasticsearch=False, use_chroma=False)  # 先設置為 False
@@ -319,7 +325,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             return False
                 
     def query(self, query_str: str, **kwargs) -> str:
-        """執行查詢並返回結果"""
+        """執行查詢並返回結果字符串"""
         if not self.query_engine:
             return "❌ 查詢引擎尚未設置。請先上傳並索引文檔。"
         
@@ -354,6 +360,94 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             st.error(f"查詢時發生錯誤: {error_msg}")
             st.write(traceback.format_exc())
             return f"查詢失敗: {error_msg}"
+    
+    def query_with_sources(self, query_str: str, save_to_history: bool = True, session_id: str = None, user_id: str = None, **kwargs) -> Dict[str, Any]:
+        """執行查詢並返回帶有來源信息的完整結果"""
+        if not self.query_engine:
+            return {
+                "answer": "❌ 查詢引擎尚未設置。請先上傳並索引文檔。",
+                "sources": [],
+                "metadata": {}
+            }
+        
+        start_time = datetime.now()
+        
+        try:
+            print(f"🔍 開始執行帶來源的查詢: {query_str}")
+            print(f"🔧 查詢引擎類型: {type(self.query_engine)}")
+            
+            response = self.query_engine.query(query_str)
+            
+            print(f"✅ 查詢完成，響應類型: {type(response)}")
+            
+            # 提取答案
+            answer = str(response)
+            
+            # 提取來源信息
+            sources = []
+            if hasattr(response, 'source_nodes') and response.source_nodes:
+                print(f"📚 找到 {len(response.source_nodes)} 個來源節點")
+                for i, node in enumerate(response.source_nodes):
+                    source_info = {
+                        "content": node.node.text[:200] + "..." if len(node.node.text) > 200 else node.node.text,
+                        "source": node.node.metadata.get("source", "未知來源"),
+                        "file_path": node.node.metadata.get("file_path", ""),
+                        "score": float(node.score) if hasattr(node, 'score') else 0.0,
+                        "page": node.node.metadata.get("page", ""),
+                        "type": node.node.metadata.get("type", "user_document")
+                    }
+                    sources.append(source_info)
+                    print(f"  [{i+1}] 來源: {source_info['source']}, 評分: {source_info['score']}")
+            else:
+                print("❌ 響應中沒有找到來源節點")
+            
+            # 計算響應時間
+            response_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+            
+            metadata = {
+                "query": query_str,
+                "total_sources": len(sources),
+                "response_time_ms": response_time_ms,
+                "model": "Groq LLama 3.3",
+                "backend": "Elasticsearch"
+            }
+            
+            result = {
+                "answer": answer,
+                "sources": sources,
+                "metadata": metadata
+            }
+            
+            # 保存到對話記錄
+            if save_to_history and self.conversation_manager:
+                try:
+                    conversation_id = self.conversation_manager.save_conversation(
+                        question=query_str,
+                        answer=answer,
+                        sources=sources,
+                        metadata=metadata,
+                        session_id=session_id,
+                        user_id=user_id
+                    )
+                    if conversation_id:
+                        result["conversation_id"] = conversation_id
+                        print(f"💾 對話記錄已保存: {conversation_id}")
+                except Exception as save_error:
+                    print(f"⚠️ 保存對話記錄失敗: {str(save_error)}")
+            
+            return result
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ 帶來源查詢失敗: {error_msg}")
+            import traceback
+            print(f"🔍 完整錯誤堆疊: {traceback.format_exc()}")
+            
+            return {
+                "answer": f"查詢失敗: {error_msg}",
+                "sources": [],
+                "metadata": {"error": error_msg}
+            }
                 
     def _setup_elasticsearch_store(self) -> bool:
         """設置 Elasticsearch 向量存儲"""
@@ -580,9 +674,9 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
     
     def get_indexed_files_from_es(self) -> List[Dict[str, Any]]:
         """從 ES 索引中獲取已索引的文件列表"""
-        # 使用同步客戶端進行查詢
-        sync_client = getattr(self, 'sync_elasticsearch_client', None)
-        if not sync_client:
+        # 使用 Elasticsearch 客戶端進行查詢
+        es_client = getattr(self, 'elasticsearch_client', None)
+        if not es_client:
             return []
         
         try:
@@ -592,7 +686,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 "aggs": {
                     "unique_sources": {
                         "terms": {
-                            "field": "metadata.source.keyword",
+                            "field": "metadata.source",
                             "size": 1000
                         },
                         "aggs": {
@@ -603,7 +697,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                             },
                             "file_type": {
                                 "terms": {
-                                    "field": "metadata.file_type.keyword",
+                                    "field": "metadata.file_type",
                                     "size": 1
                                 }
                             },
@@ -617,7 +711,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 }
             }
             
-            response = sync_client.search(
+            response = es_client.search(
                 index=self.index_name,
                 body=query
             )
@@ -637,6 +731,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     'name': source_file,
                     'chunk_count': chunk_count,
                     'total_size_bytes': total_size,
+                    'size': total_size,  # 為了兼容性保留 size 字段
                     'size_mb': round(total_size / (1024 * 1024), 1) if total_size > 0 else 0,
                     'file_type': file_type,
                     'timestamp': timestamp,
@@ -671,6 +766,35 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             'document_count': len(doc_files),
             'files': files
         }
+    
+    def get_conversation_history(self, session_id: str = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """獲取對話記錄"""
+        if self.conversation_manager:
+            return self.conversation_manager.get_conversation_history(
+                session_id=session_id, 
+                limit=limit
+            )
+        return []
+    
+    def search_conversation_history(self, query_text: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """搜索對話記錄"""
+        if self.conversation_manager:
+            return self.conversation_manager.search_conversations(query_text, limit)
+        return []
+    
+    def get_conversation_statistics(self) -> Dict[str, Any]:
+        """獲取對話統計信息"""
+        if self.conversation_manager:
+            return self.conversation_manager.get_conversation_statistics()
+        return {}
+    
+    def update_conversation_feedback(self, conversation_id: str, rating: int = None, feedback: str = None) -> bool:
+        """更新對話反饋"""
+        if self.conversation_manager:
+            return self.conversation_manager.update_conversation_feedback(
+                conversation_id, rating, feedback
+            )
+        return False
 
     def refresh_index(self):
         """刪除文檔後刷新索引"""

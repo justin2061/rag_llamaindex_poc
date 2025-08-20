@@ -1,0 +1,45 @@
+# 使用官方 Python 3.11 基礎映像
+FROM python:3.11-slim
+
+# 設定工作目錄
+WORKDIR /api
+
+# 設定環境變數
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/api \
+    STREAMLIT_SERVER_HEADLESS=true \
+    STREAMLIT_SERVER_PORT=8002 \
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+
+# 安裝必要的系統依賴 (精簡版，Graph RAG 已禁用)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    libssl-dev \
+    libmupdf-dev \
+    mupdf-tools \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 升級 pip 和安裝基礎工具
+RUN pip install --upgrade pip setuptools wheel
+
+# 複製 requirements 檔案並安裝 Python 依賴
+COPY requirements_api.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements_api.txt
+
+# 注意：應用程式代碼透過 volume 掛載，不在此複製
+
+# 暴露 API 預設端口
+EXPOSE 8002
+
+# 健康檢查
+HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8002/health || exit 1
+
+# 預設啟動簡化版應用程式
+CMD ["python", "run_api.py"]

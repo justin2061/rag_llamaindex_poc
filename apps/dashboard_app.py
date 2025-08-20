@@ -133,6 +133,11 @@ def init_system():
     if 'chat_history' not in st.session_state:
         st.session_state.chat_history = []
     
+    # 生成會話ID（用於 Elasticsearch 對話記錄）
+    if "session_id" not in st.session_state:
+        import uuid
+        st.session_state.session_id = str(uuid.uuid4())
+    
     # 初始化當前頁面
     if 'current_page' not in st.session_state:
         st.session_state.current_page = "dashboard"
@@ -153,8 +158,8 @@ def render_sidebar():
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0;">
-            <h2 style="color: #1f2937; margin-bottom: 0.5rem;">🤖 RAG 智能助理</h2>
-            <p style="color: #6b7280; font-size: 0.875rem;">多模態問答系統</p>
+            <h2 style="color: #667eea; margin-bottom: 0.5rem;">🤖 RAG 智能助理</h2>
+            <p style="color: #6b7280; font-size: 0.8rem;">問答系統</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -481,8 +486,19 @@ def render_chat():
                     # 顯示來源（如果有）
                     if chat.get('sources'):
                         with st.expander("📚 參考來源"):
-                            for source in chat['sources'][:3]:
-                                st.write(f"• {source}")
+                            # 優先顯示詳細來源信息
+                            if chat.get('source_details'):
+                                for i, source in enumerate(chat['source_details'][:3]):
+                                    st.markdown(f"""
+                                    **來源 {i+1}:** {source['source']}  
+                                    **評分:** {source['score']:.3f}  
+                                    **內容預覽:** {source['content'][:150]}...  
+                                    **文件路徑:** {source.get('file_path', '未知')}
+                                    """)
+                            else:
+                                # 回退到簡單來源列表
+                                for source in chat['sources'][:3]:
+                                    st.write(f"• {source}")
         else:
             st.info("💡 開始您的第一個問題吧！")
     
@@ -515,7 +531,7 @@ def render_chat():
     
     # 聊天管理
     st.markdown("---")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         if st.button("🗑️ 清空聊天", use_container_width=True):
@@ -528,9 +544,13 @@ def render_chat():
             export_chat_history()
     
     with col3:
+        if st.button("📊 ES 對話記錄", use_container_width=True):
+            show_elasticsearch_conversations()
+    
+    with col4:
         if st.session_state.chat_history:
             chat_count = len(st.session_state.chat_history)
-            st.metric("💬 對話數量", chat_count)
+            st.metric("💬 本地對話", chat_count)
 
 # 輔助函數
 def get_file_icon(file_type: str) -> str:
@@ -662,25 +682,135 @@ def handle_chat_query(question: str):
     """處理聊天查詢"""
     try:
         with st.spinner("🤔 思考中..."):
-            # 執行查詢
-            if hasattr(st.session_state.rag_system, 'query_with_context'):
+            # 獲取會話ID
+            session_id = st.session_state.get('session_id', 'default_session')
+            
+            # 執行帶來源的查詢
+            if hasattr(st.session_state.rag_system, 'query_with_sources'):
+                result = st.session_state.rag_system.query_with_sources(
+                    question, 
+                    save_to_history=True,
+                    session_id=session_id
+                )
+                answer = result['answer']
+                sources = result['sources']
+                conversation_id = result.get('conversation_id')
+            elif hasattr(st.session_state.rag_system, 'query_with_context'):
                 answer = st.session_state.rag_system.query_with_context(question)
+                sources = []
+                conversation_id = None
             else:
                 answer = st.session_state.rag_system.query(question)
+                sources = []
+                conversation_id = None
             
-            # 保存到聊天歷史
+            # 處理來源信息
+            source_list = []
+            if sources:
+                for source in sources:
+                    source_list.append(f"{source['source']} (評分: {source['score']:.2f})")
+            else:
+                source_list = ["向量索引", "用戶文檔"]  # 回退到默認值
+            
+            # 保存到本地聊天歷史（向後兼容）
             chat_record = {
                 'question': question,
                 'answer': answer,
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'sources': ["向量索引", "用戶文檔"]  # 簡化的來源信息
+                'sources': source_list,
+                'source_details': sources,  # 保存完整的來源詳情
+                'conversation_id': conversation_id  # 保存 ES 中的對話ID
             }
             
             st.session_state.chat_history.append(chat_record)
+            st.success("💾 對話已自動保存到 Elasticsearch")
             st.rerun()
             
     except Exception as e:
         st.error(f"❌ 查詢失敗: {str(e)}")
+
+def show_elasticsearch_conversations():
+    """顯示 Elasticsearch 中的對話記錄"""
+    if not st.session_state.rag_system:
+        st.error("❌ RAG 系統未初始化")
+        return
+    
+    # 獲取對話統計
+    try:
+        stats = st.session_state.rag_system.get_conversation_statistics()
+        
+        st.markdown("## 📊 Elasticsearch 對話記錄統計")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("總對話數", stats.get('total_conversations', 0))
+        with col2:
+            st.metric("會話數", stats.get('unique_sessions', 0))
+        with col3:
+            st.metric("平均評分", stats.get('average_rating', 0))
+        
+        # 最近對話記錄
+        st.markdown("### 📝 最近對話記錄")
+        
+        conversations = st.session_state.rag_system.get_conversation_history(limit=10)
+        
+        if conversations:
+            for i, conv in enumerate(conversations):
+                with st.expander(f"💬 {conv['question'][:50]}..." if len(conv['question']) > 50 else f"💬 {conv['question']}"):
+                    st.markdown(f"**時間:** {conv['timestamp']}")
+                    st.markdown(f"**問題:** {conv['question']}")
+                    st.markdown(f"**回答:** {conv['answer']}")
+                    
+                    if conv.get('sources'):
+                        st.markdown("**來源:**")
+                        for j, source in enumerate(conv['sources'][:3]):
+                            st.markdown(f"  {j+1}. {source.get('source', '未知')} (評分: {source.get('score', 0):.3f})")
+                    
+                    # 評分和反饋
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        rating = st.selectbox(
+                            "評分",
+                            [None, 1, 2, 3, 4, 5],
+                            index=conv.get('rating') if conv.get('rating') else 0,
+                            key=f"rating_{conv['conversation_id']}"
+                        )
+                    with col2:
+                        feedback = st.text_input(
+                            "反饋",
+                            value=conv.get('feedback', ''),
+                            key=f"feedback_{conv['conversation_id']}"
+                        )
+                    
+                    if st.button(f"💾 更新反饋", key=f"update_{conv['conversation_id']}"):
+                        if st.session_state.rag_system.update_conversation_feedback(
+                            conv['conversation_id'], rating, feedback
+                        ):
+                            st.success("✅ 反饋已更新")
+                        else:
+                            st.error("❌ 更新失敗")
+        else:
+            st.info("📝 暫無對話記錄")
+        
+        # 搜索對話
+        st.markdown("### 🔍 搜索對話記錄")
+        search_query = st.text_input("輸入搜索關鍵詞")
+        
+        if search_query:
+            search_results = st.session_state.rag_system.search_conversation_history(search_query)
+            
+            if search_results:
+                st.markdown(f"找到 {len(search_results)} 條相關對話:")
+                for conv in search_results:
+                    with st.expander(f"🔍 {conv['question'][:50]}..."):
+                        st.markdown(f"**時間:** {conv['timestamp']}")
+                        st.markdown(f"**問題:** {conv['question']}")
+                        st.markdown(f"**回答:** {conv['answer'][:200]}...")
+            else:
+                st.info("未找到相關對話")
+                
+    except Exception as e:
+        st.error(f"❌ 獲取對話記錄失敗: {str(e)}")
 
 def export_chat_history():
     """導出聊天歷史"""

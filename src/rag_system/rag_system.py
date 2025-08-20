@@ -38,7 +38,7 @@ except ImportError:
             st.error("沒有找到可用的PDF處理庫，請安裝 PyMuPDF、PyPDF2 或 pdfplumber")
 
 from config.config import (
-    GROQ_API_KEY, LLM_MODEL, INDEX_DIR, JINA_API_KEY
+    GROQ_API_KEY, LLM_MODEL, INDEX_DIR, JINA_API_KEY, ELASTICSEARCH_VECTOR_DIMENSION
 )
 
 class JinaEmbeddingAPI(BaseEmbedding):
@@ -50,6 +50,8 @@ class JinaEmbeddingAPI(BaseEmbedding):
         self.model = model
         self.task = task
         self.url = 'https://api.jina.ai/v1/embeddings'
+        # 與 Elasticsearch 向量維度保持一致（避免維度不匹配）
+        self.embed_dim = ELASTICSEARCH_VECTOR_DIMENSION
         
     def _get_text_embedding(self, text: str) -> List[float]:
         """獲取單個文本的嵌入向量"""
@@ -86,26 +88,33 @@ class JinaEmbeddingAPI(BaseEmbedding):
             return [self._simple_text_embedding(text) for text in texts]
     
     def _simple_text_embedding(self, text: str) -> List[float]:
-        """簡單的文本特徵向量（後備方案）"""
-        # 這是一個非常簡單的特徵提取，僅作為應急後備
-        # 實際生產環境建議確保 API 可用性
+        """簡單的文本特徵向量（後備方案） - 與設定維度對齊"""
         import hashlib
         
-        # 基於文本內容生成一致的特徵向量
-        text_hash = hashlib.md5(text.encode()).hexdigest()
+        # 確保文本不為空
+        if not text.strip():
+            text = "empty"
         
-        # 生成一個固定長度的向量（384維，模擬常見 embedding 維度）
-        embedding = []
-        for i in range(0, 32, 2):  # 使用 hash 的每2個字符
-            hex_val = int(text_hash[i:i+2], 16)
-            # 將每個字節轉換為多個特徵值
-            for j in range(12):  # 32/2 * 12 = 192，再重複一次得到384
-                embedding.append((hex_val + j * 17) / 255.0 - 0.5)  # 歸一化到 [-0.5, 0.5]
+        # 基於文本內容生成一致的特徵向量（使用 sha256，長度64的十六進制）
+        text_hash = hashlib.sha256(text.encode()).hexdigest()
         
-        # 重複一次以達到384維
-        embedding = embedding + embedding
+        dim = getattr(self, "embed_dim", ELASTICSEARCH_VECTOR_DIMENSION)
+        embedding: List[float] = []
         
-        return embedding[:384]  # 確保長度為384
+        # 以8為步長生成值，直到達到指定維度
+        for i in range(dim // 8):  # 每8個值為一組
+            hex_start = (i * 2) % 64
+            hex_val = int(text_hash[hex_start:hex_start+2], 16)
+            for j in range(8):
+                value = (hex_val + j * 31) % 256
+                normalized = (value / 255.0) * 2 - 1  # 歸一化到 [-1, 1]
+                embedding.append(normalized)
+        
+        # 補齊或截斷到指定維度
+        while len(embedding) < dim:
+            embedding.append(0.0)
+        
+        return embedding[:dim]
     
     async def _aget_text_embedding(self, text: str) -> List[float]:
         """異步獲取文本嵌入（回退到同步方法）"""

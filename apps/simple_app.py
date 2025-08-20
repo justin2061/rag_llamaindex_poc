@@ -162,37 +162,76 @@ def render_file_manager():
             else:
                 st.metric("🕸️ 系統類型", "Elasticsearch RAG")
         
-        # 用戶上傳文件管理
-        if hasattr(st.session_state, 'file_manager'):
-            upload_stats = st.session_state.file_manager.get_file_stats()
-            
-            if upload_stats['total_files'] > 0:
-                st.markdown("---")
-                st.markdown("### 📋 已上傳文件")
+        # 知識庫文件管理（從 ES 索引獲取）
+        if hasattr(st.session_state.rag_system, 'get_knowledge_base_file_stats'):
+            try:
+                es_file_stats = st.session_state.rag_system.get_knowledge_base_file_stats()
                 
-                # 文件列表
-                upload_dir = st.session_state.file_manager.upload_dir
-                if os.path.exists(upload_dir):
-                    files = os.listdir(upload_dir)
+                if es_file_stats['total_files'] > 0:
+                    st.markdown("---")
+                    st.markdown("### 📋 知識庫文件")
                     
-                    for file in files:
-                        file_path = os.path.join(upload_dir, file)
-                        if os.path.isfile(file_path):
-                            file_size = os.path.getsize(file_path) / (1024 * 1024)
+                    # 顯示知識庫統計
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        st.metric("📄 文件數", es_file_stats['total_files'])
+                    with col_b:
+                        st.metric("🧩 文本塊數", es_file_stats['total_chunks'])
+                    with col_c:
+                        st.metric("💾 總大小", f"{es_file_stats['total_size_mb']} MB")
+                    
+                    # 文件列表（從 ES 索引）
+                    for file_data in es_file_stats['files']:
+                        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+                        
+                        with col1:
+                            file_ext = f".{file_data['file_type']}"
+                            icon = get_file_icon(file_ext)
+                            st.write(f"{icon} {file_data['name']}")
+                        
+                        with col2:
+                            st.write(f"{file_data['size_mb']} MB")
+                        
+                        with col3:
+                            st.write(f"{file_data['chunk_count']} 塊")
+                        
+                        with col4:
+                            if st.button("🗑️", key=f"delete_es_{file_data['name']}", help=f"從知識庫刪除 {file_data['name']}"):
+                                delete_file_from_knowledge_base(file_data['name'])
+                
+            except Exception as e:
+                st.warning(f"獲取知識庫文件列表失敗: {str(e)}")
+                # 回退到本地文件管理
+                if hasattr(st.session_state, 'file_manager'):
+                    upload_stats = st.session_state.file_manager.get_file_stats()
+                    
+                    if upload_stats['total_files'] > 0:
+                        st.markdown("---")
+                        st.markdown("### 📋 本地上傳文件")
+                        
+                        # 本地文件列表
+                        upload_dir = st.session_state.file_manager.upload_dir
+                        if os.path.exists(upload_dir):
+                            files = os.listdir(upload_dir)
                             
-                            col1, col2, col3 = st.columns([3, 1, 1])
-                            
-                            with col1:
-                                file_ext = Path(file).suffix.lower()
-                                icon = get_file_icon(file_ext)
-                                st.write(f"{icon} {file}")
-                            
-                            with col2:
-                                st.write(f"{file_size:.1f} MB")
-                            
-                            with col3:
-                                if st.button("🗑️", key=f"delete_{file}", help=f"刪除 {file}"):
-                                    delete_file(file_path)
+                            for file in files:
+                                file_path = os.path.join(upload_dir, file)
+                                if os.path.isfile(file_path):
+                                    file_size = os.path.getsize(file_path) / (1024 * 1024)
+                                    
+                                    col1, col2, col3 = st.columns([3, 1, 1])
+                                    
+                                    with col1:
+                                        file_ext = Path(file).suffix.lower()
+                                        icon = get_file_icon(file_ext)
+                                        st.write(f"{icon} {file}")
+                                    
+                                    with col2:
+                                        st.write(f"{file_size:.1f} MB")
+                                    
+                                    with col3:
+                                        if st.button("🗑️", key=f"delete_{file}", help=f"刪除 {file}"):
+                                            delete_file(file_path)
         
         # 清空知識庫選項
         st.markdown("---")
@@ -201,6 +240,35 @@ def render_file_manager():
             
     except Exception as e:
         st.error(f"❌ 無法獲取知識庫資訊: {str(e)}")
+
+def delete_file_from_knowledge_base(filename):
+    """從知識庫中刪除文件（僅從ES索引刪除）"""
+    try:
+        with st.spinner(f"正在從知識庫中移除 {filename}..."):
+            if hasattr(st.session_state.rag_system, 'delete_documents_by_source'):
+                es_deleted = st.session_state.rag_system.delete_documents_by_source(filename)
+                if es_deleted:
+                    # 刷新索引
+                    st.session_state.rag_system.refresh_index_after_deletion()
+                    st.success(f"✅ 已從知識庫中移除 {filename}")
+                    
+                    # 檢查知識庫是否為空
+                    stats = st.session_state.rag_system.get_enhanced_statistics()
+                    es_stats = stats.get("elasticsearch_stats", {})
+                    doc_count = es_stats.get("document_count", 0)
+                    
+                    if doc_count == 0:
+                        st.session_state.system_ready = False
+                        st.info("📝 知識庫已清空")
+                    
+                    st.rerun()
+                else:
+                    st.warning(f"⚠️ 未找到 {filename} 相關的文檔")
+            else:
+                st.error("❌ 刪除功能不可用")
+        
+    except Exception as e:
+        st.error(f"❌ 從知識庫刪除失敗: {str(e)}")
 
 def delete_file(file_path):
     """刪除單個文件（包括本地文件和 Elasticsearch 中的對應文檔）"""

@@ -3,6 +3,7 @@ import json
 from typing import List, Dict, Any, Optional
 import streamlit as st
 from datetime import datetime
+import traceback
 
 # LlamaIndex 核心
 from llama_index.core import VectorStoreIndex, Document, Settings
@@ -41,7 +42,9 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         self.elasticsearch_config = elasticsearch_config or self._get_default_config()
         self.elasticsearch_client = None
         self.elasticsearch_store = None
-        self.index_name = self.elasticsearch_config.get('index_name', 'rag_documents')
+        # 使用配置文件中的索引名稱
+        from config.config import ELASTICSEARCH_INDEX_NAME
+        self.index_name = ELASTICSEARCH_INDEX_NAME
         
         # 記憶體使用監控
         self.memory_stats = {
@@ -53,6 +56,28 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         # 模型實例
         self.embedding_model = None
         self.llm_model = None
+        
+        # 自動初始化 Elasticsearch 連接和存儲
+        self._initialize_elasticsearch()
+    
+    def _initialize_elasticsearch(self):
+        """初始化 Elasticsearch 連接和向量存儲"""
+        try:
+            if self._setup_elasticsearch_client():
+                if self._create_elasticsearch_index():
+                    if self._setup_elasticsearch_store():
+                        st.success("✅ Elasticsearch RAG 系統初始化完成")
+                        return True
+                    else:
+                        st.error("❌ Elasticsearch 向量存儲設置失敗")
+                else:
+                    st.error("❌ Elasticsearch 索引創建失敗")
+            else:
+                st.error("❌ Elasticsearch 客戶端連接失敗")
+            return False
+        except Exception as e:
+            st.error(f"❌ Elasticsearch 初始化失敗: {str(e)}")
+            return False
     
     def _ensure_models_initialized(self):
         """確保模型已初始化並存儲為實例屬性"""
@@ -88,7 +113,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         }
     
     def _setup_elasticsearch_client(self) -> bool:
-        """設置 Elasticsearch 客戶端"""
+        """設置 Elasticsearch 客戶端（LlamaIndex 需要異步客戶端）"""
         if not ELASTICSEARCH_AVAILABLE:
             st.error("❌ Elasticsearch 依賴未安裝")
             return False
@@ -96,37 +121,75 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         try:
             config = self.elasticsearch_config
             
-            # 連接配置
+            # LlamaIndex ElasticsearchStore 需要異步客戶端
+            from elasticsearch import AsyncElasticsearch
+            
+            # 建立連接配置 - 使用異步客戶端
             es_config = {
-                'hosts': [f"{config['scheme']}://{config['host']}:{config['port']}"],
-                'timeout': config['timeout'],
+                'hosts': [{'host': config['host'], 'port': config['port'], 'scheme': config['scheme']}],
+                'request_timeout': config['timeout'],
                 'max_retries': config['max_retries'],
                 'retry_on_timeout': True,
-                'verify_certs': config['verify_certs']
+                'verify_certs': config.get('verify_certs', False)
             }
             
-            # 認證配置
+            # 如果有認證信息
             if config.get('username') and config.get('password'):
                 es_config['basic_auth'] = (config['username'], config['password'])
             
-            self.elasticsearch_client = Elasticsearch(**es_config)
+            # 創建異步客戶端（LlamaIndex 要求）
+            self.elasticsearch_client = AsyncElasticsearch(**es_config)
+            
+            # 異步客戶端需要額外的同步客戶端來做連接測試和統計
+            from elasticsearch import Elasticsearch
+            sync_client = Elasticsearch(**es_config)
             
             # 測試連接
-            if self.elasticsearch_client.ping():
+            if sync_client.ping():
                 st.success(f"✅ 成功連接到 Elasticsearch: {config['host']}:{config['port']}")
+                
+                # 顯示集群信息
+                try:
+                    cluster_info = sync_client.info()
+                    st.info(f"📊 ES 集群版本: {cluster_info.get('version', {}).get('number', 'unknown')}")
+                except:
+                    pass
+                
+                # 保存同步客戶端用於統計查詢
+                self.sync_elasticsearch_client = sync_client
+                
                 return True
             else:
                 st.error(f"❌ 無法連接到 Elasticsearch: {config['host']}:{config['port']}")
+                st.error("💡 請確認 ES 服務已啟動且網絡可達")
                 return False
                 
         except Exception as e:
             st.error(f"❌ Elasticsearch 連接失敗: {str(e)}")
+            st.error(f"🔧 連接配置: {config['scheme']}://{config['host']}:{config['port']}")
             return False
     
     def _create_elasticsearch_index(self) -> bool:
         """創建 Elasticsearch 索引"""
         try:
             config = self.elasticsearch_config
+            
+            # 驗證/對齊嵌入維度
+            try:
+                # 使用 EnhancedRAGSystem 的維度檢測
+                actual_dim = self._get_embed_dim()
+            except Exception:
+                actual_dim = None
+            expected_dim = config.get('dimension')
+            
+            if actual_dim is not None and expected_dim and int(actual_dim) != int(expected_dim):
+                st.warning(f"⚠️ 檢測到模型維度 {actual_dim} 與配置維度 {expected_dim} 不一致，將以模型維度為準。")
+                config['dimension'] = int(actual_dim)
+            
+            # 最終維度驗證
+            if not self._validate_embedding_dimension(config['dimension']):
+                st.error("❌ 嵌入維度驗證失敗，停止建立索引。")
+                return False
             
             # 索引映射設定 (使用中文分析器)
             index_mapping = {
@@ -171,21 +234,35 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 }
             }
             
-            # 檢查索引是否存在
-            if self.elasticsearch_client.indices.exists(index=self.index_name):
+            # 檢查索引是否存在（使用同步客戶端）
+            sync_client = getattr(self, 'sync_elasticsearch_client', None)
+            if not sync_client:
+                # 如果沒有同步客戶端，創建一個
+                from elasticsearch import Elasticsearch
+                sync_client = Elasticsearch(**{
+                    'hosts': [{'host': config['host'], 'port': config['port'], 'scheme': config['scheme']}],
+                    'request_timeout': config['timeout'],
+                })
+                self.sync_elasticsearch_client = sync_client
+            
+            if sync_client.indices.exists(index=self.index_name):
                 st.info(f"📚 索引 '{self.index_name}' 已存在")
                 return True
             
-            # 創建索引 - 修復 async/await 兼容性問題
+            # 創建索引（使用同步客戶端）
             try:
-                response = self.elasticsearch_client.indices.create(
+                st.info(f"🔧 正在创建索引: {self.index_name}")
+                response = sync_client.indices.create(
                     index=self.index_name,
                     body=index_mapping,
                     ignore=400  # 忽略已存在的錯誤
                 )
                 
                 if response.get('acknowledged', False):
-                    st.success(f"✅ 成功創建索引: {self.index_name}")
+                    st.success(f"✅ 成功创建索引: {self.index_name}")
+                    # 驗證索引创建
+                    if sync_client.indices.exists(index=self.index_name):
+                        st.info("📋 索引创建验证通过")
                     return True
                 else:
                     st.error(f"❌ 索引創建失敗: {response}")
@@ -226,258 +303,36 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 else:
                     st.error(f"❌ 創建索引失敗: {error_msg}")
                     return False
-                
         except Exception as e:
-            st.error(f"❌ 創建索引過程出現異常: {str(e)}")
+            st.error(f"❌ 創建索引時發生錯誤: {str(e)}")
             return False
-    
+                
     def _setup_elasticsearch_store(self) -> bool:
         """設置 Elasticsearch 向量存儲"""
         try:
-            # 確保使用正確的同步客戶端
-            if not hasattr(self, 'elasticsearch_client') or not self.elasticsearch_client:
-                st.error("❌ Elasticsearch 客戶端未初始化")
+            # 確保使用正確的同步客戶端 - ElasticsearchStore需要同步客戶端
+            sync_client = getattr(self, 'sync_elasticsearch_client', None)
+            if not sync_client:
+                st.error("❌ Elasticsearch 同步客戶端未初始化")
                 return False
             
             self.elasticsearch_store = ElasticsearchStore(
-                es_client=self.elasticsearch_client,
+                es_client=sync_client,
                 index_name=self.index_name,
                 vector_field=self.elasticsearch_config['vector_field'],
                 text_field=self.elasticsearch_config['text_field'],
-                metadata_field='metadata'
+                metadata_field='metadata',
+                embedding_dim=self.elasticsearch_config.get('dimension', 1024)
             )
             
             st.success("✅ Elasticsearch 向量存儲設置完成 (使用同步客戶端)")
             return True
-            
+                
         except Exception as e:
             st.error(f"❌ Elasticsearch 向量存儲設置失敗: {str(e)}")
             import traceback
             st.error(f"詳細錯誤: {traceback.format_exc()}")
             return False
-    
-    def create_index(self, documents: List[Document]):
-        """創建 Elasticsearch 索引"""
-        with st.spinner("正在建立 Elasticsearch 索引..."):
-            try:
-                # 1. 確保所有基礎設定都已就緒
-                if not all([
-                    self._setup_elasticsearch_client(),
-                    self._create_elasticsearch_index(),
-                    self._setup_elasticsearch_store()
-                ]):
-                    st.error("❌ Elasticsearch 基礎設定失敗，無法建立索引。")
-                    return None
-
-                # 2. 確保模型已初始化
-                self._ensure_models_initialized()
-
-                # 3. 確保所有文件都有唯一的 ID 和時間戳
-                import uuid
-                for doc in documents:
-                    if not hasattr(doc, 'id_') or not doc.id_:
-                        doc.id_ = str(uuid.uuid4())
-                    if 'timestamp' not in doc.metadata:
-                        doc.metadata['timestamp'] = datetime.now().isoformat()
-
-                # 4. 建立存儲上下文
-                storage_context = StorageContext.from_defaults(vector_store=self.elasticsearch_store)
-
-                # 5. 使用 LlamaIndex 的標準方法建立索引
-                try:
-                    self.index = VectorStoreIndex.from_documents(
-                        documents,
-                        storage_context=storage_context,
-                        embed_model=self.embedding_model,
-                        show_progress=True
-                    )
-
-                    if self.index:
-                        st.success(f"✅ Elasticsearch 索引建立完成！處理了 {len(documents)} 個文檔。")
-                        
-                        # 驗證文檔是否真的被插入
-                        try:
-                            stats = self.elasticsearch_client.indices.stats(index=self.index_name)
-                            doc_count = stats['indices'][self.index_name]['total']['docs']['count']
-                            st.info(f"📊 Elasticsearch 實際文檔數: {doc_count}")
-                            
-                            if doc_count == 0:
-                                st.warning("⚠️ 索引創建成功但文檔數為0，可能存在插入問題")
-                        except Exception as stat_e:
-                            st.warning(f"無法獲取索引統計: {stat_e}")
-                        
-                        return self.index
-                    else:
-                        st.error("❌ 索引對象為 None")
-                        return None
-                        
-                except Exception as index_e:
-                    st.error(f"❌ 索引創建過程失敗: {str(index_e)}")
-                    import traceback
-                    st.error(f"索引創建詳細錯誤: {traceback.format_exc()}")
-                    return None
-
-            except Exception as e:
-                st.error(f"❌ Elasticsearch 索引建立失敗: {str(e)}")
-                import traceback
-                st.error(f"詳細錯誤: {traceback.format_exc()}")
-                return None
-    
-    def setup_query_engine(self):
-        """設置 Elasticsearch 查詢引擎"""
-        if self.index is None:
-            st.warning("請先建立索引")
-            return
-        
-        try:
-            # 創建檢索器
-            retriever = VectorIndexRetriever(
-                index=self.index,
-                similarity_top_k=10,  # 增加檢索數量
-                vector_store_query_mode="default"
-            )
-            
-            # 創建後處理器
-            postprocessor = SimilarityPostprocessor(
-                similarity_cutoff=0.7  # 相似度過濾
-            )
-            
-            # 創建查詢引擎
-            self.query_engine = RetrieverQueryEngine.from_args(
-                retriever=retriever,
-                node_postprocessors=[postprocessor],
-                response_mode="compact",  # 緊湊模式節省記憶體
-                streaming=False
-            )
-            
-            st.success("✅ Elasticsearch 查詢引擎設置完成")
-            
-        except Exception as e:
-            st.error(f"❌ 查詢引擎設置失敗: {str(e)}")
-    
-    def get_elasticsearch_statistics(self) -> Dict[str, Any]:
-        """獲取 Elasticsearch 統計資訊"""
-        stats = super().get_enhanced_statistics()
-        
-        if self.elasticsearch_client:
-            try:
-                # 索引統計
-                index_stats = self.elasticsearch_client.indices.stats(
-                    index=self.index_name
-                )
-                
-                # 集群健康狀態
-                cluster_health = self.elasticsearch_client.cluster.health()
-                
-                # 搜索統計
-                search_stats = index_stats.get('indices', {}).get(self.index_name, {})
-                
-                elasticsearch_stats = {
-                    'cluster_status': cluster_health.get('status', 'unknown'),
-                    'total_documents': search_stats.get('total', {}).get('docs', {}).get('count', 0),
-                    'index_size_bytes': search_stats.get('total', {}).get('store', {}).get('size_in_bytes', 0),
-                    'search_queries': search_stats.get('total', {}).get('search', {}).get('query_total', 0),
-                    'memory_stats': self.memory_stats,
-                    'index_name': self.index_name,
-                    'elasticsearch_config': self.elasticsearch_config
-                }
-                
-                stats['elasticsearch_stats'] = elasticsearch_stats
-                
-            except Exception as e:
-                st.warning(f"無法獲取 Elasticsearch 統計: {str(e)}")
-        
-        return stats
-    
-    def search_documents(self, query: str, size: int = 10) -> List[Dict]:
-        """直接搜索 Elasticsearch 文檔"""
-        if not self.elasticsearch_client:
-            return []
-        
-        try:
-            # 混合搜索：向量搜索 + 文本搜索
-            search_query = {
-                "size": size,
-                "query": {
-                    "bool": {
-                        "should": [
-                            # 文本搜索
-                            {
-                                "match": {
-                                    self.elasticsearch_config['text_field']: {
-                                        "query": query,
-                                        "analyzer": "chinese_analyzer",
-                                        "boost": 1.0
-                                    }
-                                }
-                            },
-                            # 短語搜索
-                            {
-                                "match_phrase": {
-                                    self.elasticsearch_config['text_field']: {
-                                        "query": query,
-                                        "boost": 1.5
-                                    }
-                                }
-                            }
-                        ],
-                        "minimum_should_match": 1
-                    }
-                },
-                "highlight": {
-                    "fields": {
-                        self.elasticsearch_config['text_field']: {}
-                    }
-                },
-                "_source": ["*"]
-            }
-            
-            response = self.elasticsearch_client.search(
-                index=self.index_name,
-                body=search_query
-            )
-            
-            results = []
-            for hit in response['hits']['hits']:
-                result = {
-                    'score': hit['_score'],
-                    'content': hit['_source'].get(self.elasticsearch_config['text_field'], ''),
-                    'metadata': hit['_source'].get('metadata', {}),
-                    'highlights': hit.get('highlight', {})
-                }
-                results.append(result)
-            
-            return results
-            
-        except Exception as e:
-            st.error(f"搜索失敗: {str(e)}")
-            return []
-    
-    def cleanup_memory(self):
-        """清理記憶體"""
-        try:
-            import gc
-            import psutil
-            import os
-            
-            # 獲取當前記憶體使用量
-            process = psutil.Process(os.getpid())
-            memory_before = process.memory_info().rss / 1024 / 1024  # MB
-            
-            # 清理操作
-            gc.collect()
-            
-            # 記錄峰值記憶體
-            memory_after = process.memory_info().rss / 1024 / 1024  # MB
-            self.memory_stats['peak_memory_mb'] = max(
-                self.memory_stats['peak_memory_mb'], 
-                memory_before
-            )
-            
-            st.info(f"🧹 記憶體清理：{memory_before:.1f}MB → {memory_after:.1f}MB")
-            
-        except Exception as e:
-            st.warning(f"記憶體清理失敗: {str(e)}")
     
     def load_existing_index(self) -> bool:
         """載入現有的 Elasticsearch 索引"""
@@ -487,22 +342,39 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 st.error("❌ 無法連接到 Elasticsearch")
                 return False
             
-            # 檢查索引是否存在
-            if self.elasticsearch_client.indices.exists(index=self.index_name):
+            # 檢查索引是否存在（使用同步客戶端）
+            sync_client = getattr(self, 'sync_elasticsearch_client', None)
+            if sync_client and sync_client.indices.exists(index=self.index_name):
                 # 獲取索引統計資訊
-                stats = self.elasticsearch_client.indices.stats(index=self.index_name)
+                stats = sync_client.indices.stats(index=self.index_name)
                 doc_count = stats['indices'][self.index_name]['total']['docs']['count']
                 
                 if doc_count > 0:
-                    st.success(f"✅ 發現現有的 Elasticsearch 索引：{self.index_name} ({doc_count} 文檔)")
-                    
+                    # 驗證索引維度與嵌入模型
+                    try:
+                        mapping = sync_client.indices.get_mapping(index=self.index_name)
+                        props = mapping[self.index_name]['mappings']['properties']
+                        vec_field = self.elasticsearch_config['vector_field']
+                        index_dims = props.get(vec_field, {}).get('dims')
+                    except Exception:
+                        index_dims = None
+
+                    model_dim = None
+                    try:
+                        model_dim = self._get_embed_dim()
+                    except Exception:
+                        pass
+
+                    if index_dims is not None and model_dim is not None and int(index_dims) != int(model_dim):
+                        st.error(f"❌ 嵌入維度不一致：索引為 {index_dims}，模型為 {model_dim}。請對齊後重試。")
+                        return False
+
                     # 設置向量存儲
                     if self._setup_elasticsearch_store():
-                        # 重新創建索引對象
-                        from llama_index.core import VectorStoreIndex
-                        from llama_index.core.storage.storage_context import StorageContext
-                        
+                        # 確保模型初始化
                         self._ensure_models_initialized()
+                        
+                        # 重新創建索引對象
                         storage_context = StorageContext.from_defaults(vector_store=self.elasticsearch_store)
                         self.index = VectorStoreIndex.from_vector_store(
                             vector_store=self.elasticsearch_store,
@@ -536,10 +408,15 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 "elasticsearch_stats": {}
             }
             
-            if self.elasticsearch_client and self.index_name:
+            # 使用同步客戶端進行統計查詢
+            sync_client = getattr(self, 'sync_elasticsearch_client', None)
+            if sync_client and self.index_name:
                 try:
+                    # 先刷新索引確保最新數據
+                    sync_client.indices.refresh(index=self.index_name)
+                    
                     # 獲取索引統計
-                    index_stats = self.elasticsearch_client.indices.stats(index=self.index_name)
+                    index_stats = sync_client.indices.stats(index=self.index_name)
                     total_stats = index_stats['indices'][self.index_name]['total']
                     
                     stats["elasticsearch_stats"] = {
@@ -553,8 +430,19 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     stats["base_statistics"]["total_documents"] = total_stats['docs']['count']
                     stats["base_statistics"]["total_nodes"] = total_stats['docs']['count']
                     
+                    # 記錄詳細統計日誌
+                    print(f"📊 ES統計更新: 索引={self.index_name}, 文檔數={total_stats['docs']['count']}")
+                    
                 except Exception as e:
                     st.warning(f"無法獲取 Elasticsearch 統計: {e}")
+                    # 如果索引不存在，統計為0
+                    if "index_not_found" in str(e).lower():
+                        stats["elasticsearch_stats"] = {
+                            "index_name": self.index_name,
+                            "document_count": 0,
+                            "index_size_bytes": 0,
+                            "index_size_mb": 0
+                        }
                     
             return stats
             
@@ -572,8 +460,9 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
     
     def delete_documents_by_source(self, source_filename: str) -> bool:
         """根據來源文件名刪除文檔"""
-        if not self.elasticsearch_client:
-            st.error("❌ Elasticsearch 客戶端未初始化")
+        sync_client = getattr(self, 'sync_elasticsearch_client', None)
+        if not sync_client:
+            st.error("❌ Elasticsearch 同步客戶端未初始化")
             return False
         
         try:
@@ -586,8 +475,8 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 }
             }
             
-            # 刪除匹配的文檔
-            response = self.elasticsearch_client.delete_by_query(
+            # 刷除匹配的文檔
+            response = sync_client.delete_by_query(
                 index=self.index_name,
                 body=query
             )
@@ -604,14 +493,115 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             st.error(f"❌ 從 Elasticsearch 刪除文檔失敗: {str(e)}")
             return False
     
-    def refresh_index_after_deletion(self):
+    def get_indexed_files_from_es(self) -> List[Dict[str, Any]]:
+        """從 ES 索引中獲取已索引的文件列表"""
+        # 使用同步客戶端進行查詢
+        sync_client = getattr(self, 'sync_elasticsearch_client', None)
+        if not sync_client:
+            return []
+        
+        try:
+            # 聚合查詢獲取不同的文件來源
+            query = {
+                "size": 0,
+                "aggs": {
+                    "unique_sources": {
+                        "terms": {
+                            "field": "metadata.source.keyword",
+                            "size": 1000
+                        },
+                        "aggs": {
+                            "total_size": {
+                                "sum": {
+                                    "field": "metadata.file_size"
+                                }
+                            },
+                            "file_type": {
+                                "terms": {
+                                    "field": "metadata.file_type.keyword",
+                                    "size": 1
+                                }
+                            },
+                            "latest_timestamp": {
+                                "max": {
+                                    "field": "metadata.timestamp"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            response = sync_client.search(
+                index=self.index_name,
+                body=query
+            )
+            
+            files = []
+            buckets = response.get('aggregations', {}).get('unique_sources', {}).get('buckets', [])
+            
+            for bucket in buckets:
+                source_file = bucket['key']
+                chunk_count = bucket['doc_count']  # 直接從 terms 聚合取得文檔數
+                total_size = bucket.get('total_size', {}).get('value', 0)
+                file_type_buckets = bucket.get('file_type', {}).get('buckets', [])
+                file_type = file_type_buckets[0]['key'] if file_type_buckets else 'unknown'
+                timestamp = bucket.get('latest_timestamp', {}).get('value_as_string', '')
+                
+                files.append({
+                    'name': source_file,
+                    'chunk_count': chunk_count,
+                    'total_size_bytes': total_size,
+                    'size_mb': round(total_size / (1024 * 1024), 1) if total_size > 0 else 0,
+                    'file_type': file_type,
+                    'timestamp': timestamp,
+                    'source': 'elasticsearch'
+                })
+            
+            return files
+            
+        except Exception as e:
+            st.warning(f"從 ES 獲取文件列表失敗: {str(e)}")
+            return []
+    
+    def get_knowledge_base_file_stats(self) -> Dict[str, Any]:
+        """獲取知識庫文件統計（從ES索引）"""
+        files = self.get_indexed_files_from_es()
+        
+        total_files = len(files)
+        total_chunks = sum(f['chunk_count'] for f in files)
+        total_size_mb = sum(f['size_mb'] for f in files)
+        
+        # 按文件類型分類
+        pdf_files = [f for f in files if f['file_type'] == 'pdf']
+        image_files = [f for f in files if f['file_type'] in ['png', 'jpg', 'jpeg', 'webp', 'bmp']]
+        doc_files = [f for f in files if f['file_type'] in ['txt', 'docx', 'md']]
+        
+        return {
+            'total_files': total_files,
+            'total_chunks': total_chunks,
+            'total_size_mb': round(total_size_mb, 2),
+            'pdf_count': len(pdf_files),
+            'image_count': len(image_files),
+            'document_count': len(doc_files),
+            'files': files
+        }
+
+    def refresh_index(self):
         """刪除文檔後刷新索引"""
         try:
-            if self.elasticsearch_client:
-                self.elasticsearch_client.indices.refresh(index=self.index_name)
+            # 使用同步客戶端進行索引刷新
+            sync_client = getattr(self, 'sync_elasticsearch_client', None)
+            if sync_client:
+                print("🔄 正在使用同步客戶端刷新ES索引...")
+                sync_client.indices.refresh(index=self.index_name)
                 st.info("🔄 Elasticsearch 索引已刷新")
+                print("✅ ES索引刷新完成")
+            else:
+                st.warning("⚠️ 同步ES客戶端不可用，無法刷新索引")
         except Exception as e:
             st.warning(f"索引刷新警告: {str(e)}")
+            print(f"❌ 索引刷新失敗: {str(e)}")
 
     def __del__(self):
         """析構函數：清理資源"""
@@ -620,3 +610,365 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 self.elasticsearch_client.close()
         except:
             pass
+    
+    def setup_query_engine(self):
+        """設置查詢引擎 - 支援 ES 混合檢索 (向量 + 關鍵字)"""
+        if self.index:
+            # 使用自定義的混合檢索器
+            if self.use_elasticsearch and self.elasticsearch_store:
+                # 創建混合檢索器 (向量 + 關鍵字)
+                retriever = self._create_hybrid_retriever()
+                
+                from llama_index.core.query_engine import RetrieverQueryEngine
+                self.query_engine = RetrieverQueryEngine.from_args(
+                    retriever=retriever,
+                    response_mode="compact"
+                )
+                st.success("✅ 使用 ES 混合檢索引擎 (向量搜尋 + 關鍵字搜尋)")
+            else:
+                # 回退到標準查詢引擎
+                self.query_engine = self.index.as_query_engine(
+                    similarity_top_k=3,
+                    response_mode="compact"
+                )
+                st.info("✅ 使用標準向量檢索引擎")
+    
+    def _create_hybrid_retriever(self):
+        """創建 ES 混合檢索器 (向量相似度 + BM25 關鍵字)"""
+        from llama_index.core.retrievers import BaseRetriever
+        from llama_index.core.schema import QueryBundle, NodeWithScore
+        from typing import List
+        
+        class ESHybridRetriever(BaseRetriever):
+            def __init__(self, es_client, index_name, embedding_model, top_k=5):
+                self.es_client = es_client
+                self.index_name = index_name
+                self.embedding_model = embedding_model
+                self.top_k = top_k
+                print(f"🔧 ESHybridRetriever初始化: ES客戶端類型={type(es_client)}")
+                print(f"🔧 索引名稱: {index_name}, top_k: {top_k}")
+                super().__init__()
+            
+            def _retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+                """混合檢索：結合向量搜尋和關鍵字搜尋"""
+                query_text = query_bundle.query_str
+                print(f"🔍 開始ES混合檢索，查詢: {query_text}")
+                print(f"🔧 ES客戶端類型: {type(self.es_client)}")
+                
+                try:
+                    # 1. 獲取查詢的 embedding 向量
+                    print("📊 正在獲取查詢向量...")
+                    query_embedding = self.embedding_model._get_query_embedding(query_text)
+                    print(f"✅ 查詢向量維度: {len(query_embedding) if query_embedding else 'None'}")
+                    
+                    # 2. ES 混合查詢 (向量 + 關鍵字)
+                    hybrid_query = {
+                        "size": self.top_k,
+                        "query": {
+                            "bool": {
+                                "should": [
+                                    # 向量相似度搜尋 (語義搜尋)
+                                    {
+                                        "knn": {
+                                            "embedding": {
+                                                "vector": query_embedding,
+                                                "k": self.top_k
+                                            }
+                                        }
+                                    },
+                                    # BM25 關鍵字搜尋 (詞彙搜尋)
+                                    {
+                                        "match": {
+                                            "content": {
+                                                "query": query_text,
+                                                "boost": 1.2  # 稍微提升關鍵字權重
+                                            }
+                                        }
+                                    },
+                                    # 短語匹配
+                                    {
+                                        "match_phrase": {
+                                            "content": {
+                                                "query": query_text,
+                                                "boost": 1.5
+                                            }
+                                        }
+                                    }
+                                ],
+                                "minimum_should_match": 1
+                            }
+                        },
+                        "_source": ["content", "metadata"]
+                    }
+                    
+                    # 3. 執行查詢
+                    print(f"🔍 執行ES搜尋，索引: {self.index_name}")
+                    print(f"🔧 查詢結構: {hybrid_query}")
+                    
+                    try:
+                        response = self.es_client.search(
+                            index=self.index_name,
+                            body=hybrid_query
+                        )
+                        print(f"✅ ES查詢成功，響應類型: {type(response)}")
+                        
+                        # 檢查 response 是否為 awaitable
+                        if hasattr(response, '__await__'):
+                            print("❌ 錯誤：收到awaitable response，但在同步環境中")
+                            raise Exception("同步客戶端返回了awaitable response")
+                            
+                    except Exception as search_error:
+                        print(f"❌ ES搜尋失敗: {str(search_error)}")
+                        print(f"🔧 搜尋錯誤類型: {type(search_error)}")
+                        raise search_error
+                    
+                    # 4. 轉換為 NodeWithScore
+                    nodes = []
+                    hits = response.get('hits', {}).get('hits', [])
+                    print(f"📊 找到 {len(hits)} 個匹配結果")
+                    
+                    for i, hit in enumerate(hits):
+                        from llama_index.core.schema import TextNode
+                        
+                        # 創建文本節點
+                        node = TextNode(
+                            text=hit['_source']['content'],
+                            metadata=hit['_source'].get('metadata', {}),
+                            id_=hit['_id']
+                        )
+                        
+                        # ES 評分 (結合向量和關鍵字)
+                        score = hit['_score']
+                        
+                        # 創建評分節點
+                        node_with_score = NodeWithScore(
+                            node=node,
+                            score=score
+                        )
+                        nodes.append(node_with_score)
+                    
+                    st.info(f"🔍 ES 混合檢索找到 {len(nodes)} 個相關文檔")
+                    return nodes
+                    
+                except Exception as e:
+                    print(f"❌ ES混合檢索失敗，錯誤詳情: {str(e)}")
+                    print(f"🔧 錯誤類型: {type(e)}")
+                    import traceback
+                    print(f"🔍 完整錯誤堆疊: {traceback.format_exc()}")
+                    st.error(f"❌ ES 混合檢索失敗: {str(e)}")
+                    
+                    # 檢查是否為async/await錯誤
+                    if "ObjectApiResponse" in str(e) or "await" in str(e) or "coroutine" in str(e):
+                        print("🚨 檢測到async/sync客戶端錯誤，ES客戶端可能仍為異步")
+                        print(f"🔧 當前ES客戶端類型: {type(self.es_client)}")
+                    
+                    # 回退到基本向量檢索
+                    return self._fallback_vector_search(query_bundle)
+            
+            def _fallback_vector_search(self, query_bundle):
+                """回退到純向量搜尋"""
+                try:
+                    query_embedding = self.embedding_model._get_query_embedding(query_bundle.query_str)
+                    
+                    vector_query = {
+                        "size": self.top_k,
+                        "query": {
+                            "knn": {
+                                "embedding": {
+                                    "vector": query_embedding,
+                                    "k": self.top_k
+                                }
+                            }
+                        },
+                        "_source": ["content", "metadata"]
+                    }
+                    
+                    response = self.es_client.search(
+                        index=self.index_name,
+                        body=vector_query
+                    )
+                    
+                    nodes = []
+                    for hit in response['hits']['hits']:
+                        from llama_index.core.schema import TextNode
+                        
+                        node = TextNode(
+                            text=hit['_source']['content'],
+                            metadata=hit['_source'].get('metadata', {}),
+                            id_=hit['_id']
+                        )
+                        
+                        node_with_score = NodeWithScore(
+                            node=node,
+                            score=hit['_score']
+                        )
+                        nodes.append(node_with_score)
+                    
+                    st.warning("⚠️ 回退到純向量搜尋")
+                    return nodes
+                    
+                except Exception as e:
+                    st.error(f"❌ 向量搜尋也失敗: {str(e)}")
+                    return []
+        
+        # 創建並返回混合檢索器 - 使用同步客戶端
+        sync_client = getattr(self, 'sync_elasticsearch_client', None)
+        if not sync_client:
+            st.error("❌ 同步ES客戶端未初始化，無法創建查詢引擎")
+            return None
+            
+        return ESHybridRetriever(
+            es_client=sync_client,
+            index_name=self.index_name,
+            embedding_model=self.embedding_model,
+            top_k=10  # Change the top_k value from 5 to 10
+        )
+    
+    def _recreate_sync_elasticsearch_client(self) -> bool:
+        """完全重新創建同步ES客戶端，解決async/await問題"""
+        try:
+            print("🔧 開始重新創建同步ES客戶端...")
+            
+            # 強制使用最基礎的同步配置
+            from elasticsearch import Elasticsearch
+            
+            config = self.elasticsearch_config
+            basic_config = {
+                'hosts': [f"{config['scheme']}://{config['host']}:{config['port']}"],
+                'request_timeout': 60,
+                'max_retries': 1,
+                'retry_on_timeout': False
+            }
+            
+            if config.get('username') and config.get('password'):
+                basic_config['basic_auth'] = (config['username'], config['password'])
+            
+            # 創建新的同步客戶端
+            new_sync_client = Elasticsearch(**basic_config)
+            
+            # 測試連接
+            if new_sync_client.ping():
+                print("✅ 新同步客戶端連接成功")
+                # 更新同步客戶端引用（不要覆蓋異步客戶端）
+                self.sync_elasticsearch_client = new_sync_client
+                
+                # 重新創建向量存儲 - 使用同步客戶端
+                self.elasticsearch_store = ElasticsearchStore(
+                    es_client=self.sync_elasticsearch_client,
+                    index_name=self.index_name,
+                    vector_field=self.elasticsearch_config['vector_field'],
+                    text_field=self.elasticsearch_config['text_field'],
+                    metadata_field='metadata',
+                    embedding_dim=self.elasticsearch_config.get('dimension', 1024)
+                )
+                print("✅ 向量存儲重新創建成功（使用同步客戶端）")
+                return True
+            else:
+                print("❌ 新同步客戶端連接失敗")
+                return False
+                
+        except Exception as e:
+            print(f"❌ 重新創建同步客戶端失敗: {str(e)}")
+            return False
+    
+    def create_index(self, documents: List[Document]) -> VectorStoreIndex:
+        """覆寫父類方法，強制使用 Elasticsearch"""
+        if not documents:
+            st.warning("⚠️ 沒有文檔需要索引")
+            return None
+        
+        with st.spinner("正在使用 Elasticsearch 建立索引..."):
+            try:
+                # 確保 ES 連接和模型已初始化
+                if not self.elasticsearch_client:
+                    st.error("❌ Elasticsearch 客戶端未初始化，嘗試重新初始化...")
+                    if not self._setup_elasticsearch_client():
+                        return None
+                
+                if not self.elasticsearch_store:
+                    st.error("❌ Elasticsearch 向量存儲未設置，嘗試重新設置...")
+                    if not self._create_elasticsearch_index():
+                        return None
+                    if not self._setup_elasticsearch_store():
+                        return None
+                    
+                self._ensure_models_initialized()
+                
+                # 建立 storage context
+                storage_context = StorageContext.from_defaults(
+                    vector_store=self.elasticsearch_store
+                )
+                
+                st.info(f"📊 準備向量化 {len(documents)} 個文檔到 {self.index_name}")
+                
+                # 檢查文檔內容
+                for i, doc in enumerate(documents[:3]):
+                    content_preview = doc.text[:100] + "..." if len(doc.text) > 100 else doc.text
+                    print(f"📄 文檔 {i+1}: {len(doc.text)} 字符")
+                    print(f"   內容預覽: {content_preview}")
+                    if hasattr(doc, 'metadata') and doc.metadata:
+                        print(f"   元數據: {doc.metadata}")
+                
+                # 創建索引 - 加入詳細日誌
+                print(f"🔧 開始創建VectorStoreIndex，使用ES存儲: {type(self.elasticsearch_store)}")
+                print(f"🔧 ES客戶端類型: {type(self.elasticsearch_client)}")
+                print(f"🔧 嵌入模型類型: {type(self.embedding_model)}")
+                
+                try:
+                    index = VectorStoreIndex.from_documents(
+                        documents, 
+                        storage_context=storage_context,
+                        embed_model=self.embedding_model
+                    )
+                    print("✅ VectorStoreIndex.from_documents 執行成功")
+                except Exception as index_error:
+                    print(f"❌ VectorStoreIndex.from_documents 失敗: {str(index_error)}")
+                    print(f"❌ 錯誤類型: {type(index_error)}")
+                    import traceback
+                    print(f"❌ 完整錯誤堆疊: {traceback.format_exc()}")
+                    
+                    # 如果是 HeadApiResponse 錯誤，嘗試替代方案
+                    if "HeadApiResponse" in str(index_error) or "await" in str(index_error):
+                        print("🔄 檢測到HeadApiResponse錯誤，嘗試重新初始化ES客戶端...")
+                        
+                        # 完全重新創建 ES 客戶端和存儲
+                        if self._recreate_sync_elasticsearch_client():
+                            print("🔄 重新創建storage_context...")
+                            storage_context = StorageContext.from_defaults(
+                                vector_store=self.elasticsearch_store
+                            )
+                            
+                            print("🔄 重新嘗試創建索引...")
+                            index = VectorStoreIndex.from_documents(
+                                documents, 
+                                storage_context=storage_context,
+                                embed_model=self.embedding_model
+                            )
+                            print("✅ 使用重新創建的客戶端成功創建索引")
+                        else:
+                            raise index_error
+                    else:
+                        raise index_error
+                
+                # 強制刷新並驗證（使用同步客戶端）
+                sync_client = getattr(self, 'sync_elasticsearch_client', None)
+                if sync_client:
+                    sync_client.indices.refresh(index=self.index_name)
+                    stats = sync_client.indices.stats(index=self.index_name)
+                    doc_count = stats['indices'][self.index_name]['total']['docs']['count']
+                else:
+                    doc_count = 0
+                
+                print(f"✅ ES索引驗證: {doc_count} 個文檔已成功索引到 {self.index_name}")
+                st.success(f"✅ 成功索引 {doc_count} 個文檔到 Elasticsearch")
+                
+                # 更新統計
+                self.memory_stats['documents_processed'] = len(documents)
+                self.memory_stats['vectors_stored'] = doc_count
+                
+                return index
+                
+            except Exception as e:
+                st.error(f"❌ Elasticsearch 索引建立失敗: {str(e)}")
+                print(f"❌ 詳細錯誤: {traceback.format_exc()}")
+                return None

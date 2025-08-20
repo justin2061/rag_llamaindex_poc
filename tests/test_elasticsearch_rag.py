@@ -7,6 +7,11 @@
 import sys
 import os
 
+# 確保可以從專案根目錄導入 src/ 與 config/
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 def test_imports():
     """測試主要模組導入"""
     print("🔍 測試模組導入...")
@@ -26,7 +31,7 @@ def test_imports():
         return False
     
     try:
-        from elasticsearch_rag_system import ElasticsearchRAGSystem
+        from src.rag_system.elasticsearch_rag_system import ElasticsearchRAGSystem
         print("✅ ElasticsearchRAGSystem")
     except ImportError as e:
         print(f"❌ ElasticsearchRAGSystem 導入失敗: {e}")
@@ -71,7 +76,7 @@ def test_basic_initialization():
     print("\n🚀 測試 ElasticsearchRAGSystem 初始化...")
     
     try:
-        from elasticsearch_rag_system import ElasticsearchRAGSystem
+        from src.rag_system.elasticsearch_rag_system import ElasticsearchRAGSystem
         
         # 創建系統實例（不連接 Elasticsearch）
         system = ElasticsearchRAGSystem()
@@ -96,7 +101,7 @@ def test_config_loading():
     print("\n⚙️ 測試配置載入...")
     
     try:
-        from config import (
+        from config.config import (
             ELASTICSEARCH_HOST, ELASTICSEARCH_PORT, 
             ELASTICSEARCH_INDEX_NAME, RAG_SYSTEM_TYPE,
             ENABLE_ELASTICSEARCH

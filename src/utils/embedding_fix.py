@@ -148,58 +148,23 @@ class SafeJinaEmbedding(BaseEmbedding):
         return self._get_text_embedding(text)
 
 def setup_safe_embedding(jina_api_key: str = None):
-    """設置安全的嵌入模型 - 優先使用 HuggingFace 本地嵌入"""
+    """設置安全的嵌入模型 - 僅使用 Jina API 或本地後備"""
     
-    # 嘗試使用 HuggingFace 本地嵌入
-    try:
-        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-        
-        embedding_model = HuggingFaceEmbedding(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            cache_folder="/tmp/embedding_cache"  # 使用臨時目錄避免權限問題
-        )
-        
-        # 設置為全域預設
-        Settings.embed_model = embedding_model
-        
-        st.success("✅ 使用 HuggingFace 本地嵌入模型")
-        return embedding_model
-        
-    except ImportError:
-        st.warning("⚠️ HuggingFace 嵌入不可用，使用 Jina API 後備方案")
-        
-        # 回退到 Jina API
-        if not jina_api_key:
-            jina_api_key = os.getenv("JINA_API_KEY")
-        
-        embedding_model = SafeJinaEmbedding(
-            api_key=jina_api_key,
-            model="jina-embeddings-v3",
-            task="text-matching"
-        )
-        
-        # 設置為全域預設
-        Settings.embed_model = embedding_model
-        
-        return embedding_model
+    # 使用 Jina API（若未提供則從環境變數讀取）
+    if not jina_api_key:
+        jina_api_key = os.getenv("JINA_API_KEY")
     
-    except Exception as e:
-        st.warning(f"⚠️ HuggingFace 嵌入初始化失敗: {e}，使用 Jina API 後備方案")
-        
-        # 回退到 Jina API
-        if not jina_api_key:
-            jina_api_key = os.getenv("JINA_API_KEY")
-        
-        embedding_model = SafeJinaEmbedding(
-            api_key=jina_api_key,
-            model="jina-embeddings-v3",
-            task="text-matching"
-        )
-        
-        # 設置為全域預設
-        Settings.embed_model = embedding_model
-        
-        return embedding_model
+    embedding_model = SafeJinaEmbedding(
+        api_key=jina_api_key,
+        model="jina-embeddings-v3",
+        task="text-matching"
+    )
+    
+    # 設置為全域預設
+    Settings.embed_model = embedding_model
+    
+    st.success("✅ 使用 Jina 嵌入模型（帶本地後備）")
+    return embedding_model
 
 def prevent_openai_fallback():
     """防止 LlamaIndex 回退到 OpenAI"""

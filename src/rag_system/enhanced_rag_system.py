@@ -1,7 +1,7 @@
 import os
 from typing import List, Optional, Dict, Any
 import streamlit as st
-from llama_index.core import VectorStoreIndex, Document
+from llama_index.core import VectorStoreIndex, Document, Settings
 
 # Elasticsearch 支援
 try:
@@ -17,7 +17,6 @@ from ..storage.conversation_memory import ConversationMemory
 from ..processors.user_file_manager import UserFileManager
 from ..processors.gemini_ocr import GeminiOCRProcessor
 from ..utils.embedding_fix import setup_safe_embedding, prevent_openai_fallback
-from ..utils.immediate_fix import setup_immediate_fix
 # from chroma_vector_store import ChromaVectorStoreManager  # 已改用 Elasticsearch
 
 class EnhancedRAGSystem(RAGSystem):
@@ -70,7 +69,12 @@ class EnhancedRAGSystem(RAGSystem):
             # 檢查連接
             if self.elasticsearch_client.ping():
                 st.info("✅ Elasticsearch 連接成功")
-                
+                # 維度一致性檢查
+                if not self._validate_embedding_dimension(ELASTICSEARCH_VECTOR_DIMENSION):
+                    st.error("❌ 嵌入維度與 Elasticsearch 配置不一致，請檢查設定。")
+                    self.use_elasticsearch = False
+                    return False
+
                 # 建立 vector store
                 self.elasticsearch_store = ElasticsearchStore(
                     es_client=self.elasticsearch_client,
@@ -114,19 +118,13 @@ class EnhancedRAGSystem(RAGSystem):
             st.error("請設定GROQ_API_KEY環境變數")
             return
         
-        # 設定安全嵌入模型 - 使用立即修復方案
+        # 設定安全嵌入模型 - 僅使用 Jina API（含本地後備）
         try:
-            # 先嘗試立即修復方案
-            embed_model = setup_immediate_fix()
-            st.success("✅ 成功初始化嵌入模型（立即修復版本）")
-        except Exception as e:
-            st.warning(f"立即修復失敗: {str(e)}，嘗試原始方案")
-            try:
-                embed_model = setup_safe_embedding(JINA_API_KEY)
-                st.success("✅ 成功初始化嵌入模型")
-            except Exception as e2:
-                st.error(f"嵌入模型初始化失敗: {str(e2)}")
-                return
+            embed_model = setup_safe_embedding(JINA_API_KEY)
+            st.success("✅ 成功初始化嵌入模型（Jina）")
+        except Exception as e2:
+            st.error(f"嵌入模型初始化失敗: {str(e2)}")
+            return
         
         # 設定全域配置
         Settings.llm = llm
@@ -135,6 +133,32 @@ class EnhancedRAGSystem(RAGSystem):
         
         st.success("🔧 模型初始化完成")
         
+    def _get_embed_dim(self) -> int:
+        """嘗試從當前嵌入模型取得維度。找不到則返回 None。"""
+        try:
+            model = Settings.embed_model
+            for attr in ("embed_dim", "_embed_dim", "dimension", "dim"):
+                if hasattr(model, attr):
+                    val = getattr(model, attr)
+                    try:
+                        return int(val)
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        return None
+
+    def _validate_embedding_dimension(self, expected_dim: int) -> bool:
+        """驗證當前嵌入模型維度與預期一致。"""
+        actual = self._get_embed_dim()
+        if actual is None:
+            st.warning("無法檢測嵌入維度，跳過維度驗證。")
+            return True
+        if actual != int(expected_dim):
+            st.error(f"嵌入維度不匹配：模型為 {actual}，Elasticsearch 預期為 {expected_dim}")
+            return False
+        return True
+
     def query_with_context(self, question: str) -> str:
         """帶上下文記憶的查詢"""
         if not self.query_engine:
@@ -328,7 +352,6 @@ class EnhancedRAGSystem(RAGSystem):
             else:
                 st.warning(f"暫不支援的文檔格式: {file_ext}")
                 return None
-                
         except Exception as e:
             st.error(f"處理文檔檔案時發生錯誤: {str(e)}")
             return None
@@ -346,16 +369,53 @@ class EnhancedRAGSystem(RAGSystem):
                 if self.use_elasticsearch and self.elasticsearch_store:
                     st.info("使用 Elasticsearch 建立索引...")
                     try:
+                        # 建立前做維度驗證
+                        from config.config import ELASTICSEARCH_VECTOR_DIMENSION
+                        if not self._validate_embedding_dimension(ELASTICSEARCH_VECTOR_DIMENSION):
+                            st.error("❌ 維度不一致，停止建立索引。")
+                            return None
+
                         # 建立 storage context
                         storage_context = StorageContext.from_defaults(
                             vector_store=self.elasticsearch_store
                         )
                         
-                        # 創建索引
+                        # 創建索引 - 增加詳細日誌
+                        print(f"🚀 開始使用 ES 建立索引，文檔數量: {len(documents)}")
+                        st.info(f"📊 準備向量化 {len(documents)} 個文檔")
+                        
+                        # 檢查文檔內容
+                        for i, doc in enumerate(documents[:3]):  # 只檢查前3個
+                            content_preview = doc.text[:100] + "..." if len(doc.text) > 100 else doc.text
+                            print(f"📄 文檔 {i+1}: {len(doc.text)} 字符")
+                            print(f"   內容預覽: {content_preview}")
+                            if hasattr(doc, 'metadata') and doc.metadata:
+                                print(f"   元數據: {doc.metadata}")
+                        
                         index = VectorStoreIndex.from_documents(
                             documents, 
                             storage_context=storage_context
                         )
+                        
+                        # 強制刷新 ES 索引
+                        if hasattr(self, 'elasticsearch_client') and self.elasticsearch_client:
+                            try:
+                                # 使用正確的索引名稱
+                                index_name = getattr(self, 'index_name', None)
+                                if not index_name and hasattr(self, 'elasticsearch_store'):
+                                    index_name = getattr(self.elasticsearch_store, 'index_name', 'rag_intelligent_assistant')
+                                self.elasticsearch_client.indices.refresh(index=index_name)
+                                print("✅ ES索引已刷新")
+                                
+                                # 驗證索引結果
+                                stats = self.elasticsearch_client.indices.stats(index=index_name)
+                                doc_count = stats['indices'][index_name]['total']['docs']['count']
+                                print(f"📊 索引驗證: {doc_count} 個文檔已索引")
+                                st.info(f"📊 已成功索引 {doc_count} 個文檔到 Elasticsearch")
+                                
+                            except Exception as refresh_error:
+                                print(f"⚠️ 索引刷新或驗證失敗: {refresh_error}")
+                        
                         st.success("✅ 成功使用 Elasticsearch 建立索引")
                         
                     except Exception as e:
@@ -395,6 +455,13 @@ class EnhancedRAGSystem(RAGSystem):
             if self.use_elasticsearch and self.elasticsearch_store:
                 st.info("嘗試從 Elasticsearch 載入索引...")
                 try:
+                    # 載入前做維度驗證
+                    from config.config import ELASTICSEARCH_VECTOR_DIMENSION
+                    if not self._validate_embedding_dimension(ELASTICSEARCH_VECTOR_DIMENSION):
+                        st.error("❌ 維度不一致，停止載入索引。")
+                        self.use_elasticsearch = False
+                        # 繼續嘗試回退到 SimpleVectorStore
+                    
                     # 檢查 Elasticsearch 是否有資料
                     es_stats = self.elasticsearch_client.indices.stats(
                         index=self.elasticsearch_store.index_name

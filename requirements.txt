@@ -3,8 +3,8 @@ llama-index>=0.10.25
 llama-index-llms-groq>=0.1.3
 # 嵌入模型選項（選擇其中一個）
 # Option 1: HuggingFace 本地嵌入（可能需要較多資源）
-llama-index-embeddings-huggingface>=0.2.0
-sentence-transformers>=2.2.0
+# llama-index-embeddings-huggingface>=0.2.0
+# sentence-transformers>=2.2.0
 
 # Option 2: Jina API 嵌入（推薦，輕量級）
 # 如果使用 Jina API，需要在 .env 中設置 JINA_API_KEY

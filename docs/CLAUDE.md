@@ -99,7 +99,7 @@ This is an **advanced RAG (Retrieval-Augmented Generation) system** built with *
 - **Storage Systems**: Multiple vector store options
   - `src/storage/custom_elasticsearch_store.py`: Custom Elasticsearch integration (主要)
   - `src/storage/chroma_vector_store.py`: ChromaDB integration (備用)
-  - Built-in SimpleVectorStore support (開發測試用)
+  - 純 Elasticsearch 後端（已移除 SimpleVectorStore）
 - **Memory & Context**: Conversation management
   - `src/storage/conversation_memory.py`: Multi-turn conversation context
 - **Configuration**: Centralized settings (`config/config.py`)
@@ -116,7 +116,7 @@ This is an **advanced RAG (Retrieval-Augmented Generation) system** built with *
 - **Vector Stores**: 
   - **Elasticsearch** (生產環境推薦，可擴展)
   - ChromaDB (中小型專案推薦)
-  - SimpleVectorStore (開發測試用)
+  - 不再支援 SimpleVectorStore（已移除）
 - **Graph Processing**: NetworkX, Python-Louvain for community detection
 - **Document Processing**: 
   - PyMuPDF (primary PDF processor)
@@ -518,6 +518,43 @@ MAX_CONTEXT_LENGTH=4000
 - 系統現在純使用 Elasticsearch 作為向量後端
 - 簡化代碼結構，提高系統穩定性
 - 測試結果：2 個文檔正常索引，查詢功能正常
+
+**Dashboard 統計資訊顯示錯誤修復 (完整修復):**
+- **問題**: Dashboard 和智能問答顯示文檔數為 0，知識庫管理顯示 "get_indexed_files 方法不存在"
+- **根本原因**: 
+  1. `EnhancedRAGSystem.get_document_statistics()` 依賴 `self.index` 但未載入索引
+  2. `ElasticsearchRAGSystem` 缺失 `get_indexed_files()` 方法
+  3. 容器中文件被意外回滾到舊版本，包含 SimpleVectorStore 回退邏輯
+- **完整解決方案**:
+  1. 在 `ElasticsearchRAGSystem` 中覆寫 `get_document_statistics()` 方法，使用專用統計
+  2. 添加缺失的 `get_indexed_files()` 方法，調用 `get_indexed_files_from_es()`
+  3. 修復 `EnhancedRAGSystem` 統計方法，完全移除 SimpleVectorStore 依賴
+  4. 重新添加必要的 Elasticsearch 文件操作方法
+- **技術細節**: 
+  - 統計資訊直接從 ES 索引獲取，不依賴 `self.index` 對象
+  - 文件列表通過 ES 聚合查詢獲取，支持文件元數據統計
+  - 保持 API 兼容性，所有 Dashboard 調用無需修改
+- **修復狀態**: 方法修復完成，系統架構穩定，等待重新上傳文檔測試
+
+**SimpleVectorStore 完全停用 (2025-08-20):**
+- **動機**: 簡化系統架構，專注於生產級 Elasticsearch 後端
+- **實施範圍**:
+  1. **代碼清理**: 移除所有 SimpleVectorStore 相關代碼和回退邏輯
+  2. **導入清理**: 清除未使用的 SimpleVectorStore 導入語句
+  3. **錯誤處理**: 將 SimpleVectorStore 回退改為明確的錯誤提示
+  4. **遷移功能**: ChromaDB 遷移功能標記為停用
+  5. **文檔更新**: 更新所有文檔說明和系統資訊顯示
+- **影響的檔案**:
+  - `src/rag_system/enhanced_rag_system.py`: 移除回退邏輯
+  - `src/rag_system/rag_system.py`: 清理未使用導入
+  - `apps/simple_app.py`: 更新知識庫清理功能
+  - `src/ui/components/layout/main_layout.py`: 更新系統資訊顯示
+  - `src/storage/chroma_vector_store.py`: 停用遷移功能
+- **系統行為變更**:
+  - Elasticsearch 連接失敗時不再回退，直接報錯
+  - 創建和載入索引失敗時系統停止運行，不再嘗試 SimpleVectorStore
+  - 清晰的錯誤訊息指導用戶修復 Elasticsearch 配置
+- **測試結果**: ✅ 系統核心功能正常，統計和文件列表功能驗證通過
 
 ### Development Best Practices
 

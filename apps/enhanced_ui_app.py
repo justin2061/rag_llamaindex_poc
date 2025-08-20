@@ -1,15 +1,9 @@
 import streamlit as st
 import os
-import sys
 from datetime import datetime
-from pathlib import Path
-
-# 添加項目根目錄到 Python 路徑
-sys.path.append(str(Path(__file__).parent.parent))
-
-from src.processors.enhanced_pdf_downloader import EnhancedPDFDownloader
-from src.rag_system.enhanced_rag_system import EnhancedRAGSystem
-from config.config import PAGE_TITLE, PAGE_ICON, GROQ_API_KEY, WEB_SOURCES, GEMINI_API_KEY
+from enhanced_pdf_downloader import EnhancedPDFDownloader
+from enhanced_rag_system import EnhancedRAGSystem
+from config import PAGE_TITLE, PAGE_ICON, GROQ_API_KEY, WEB_SOURCES, GEMINI_API_KEY
 
 # 導入新的 UI 組件
 from components.user_experience import UserExperience
@@ -202,59 +196,55 @@ def render_personal_mode(components: dict, ux: UserExperience):
             # 處理用戶問題
             if user_question and st.session_state.rag_system:
                 def handle_query(question):
-                    """處理用戶查詢（同步）"""
-                    if 'rag_system' not in st.session_state or not st.session_state.rag_system:
-                        st.error("請先初始化 RAG 系統")
+                    """處理用戶查詢"""
+                    if "current_system" not in st.session_state or not st.session_state.current_system:
+                        st.error("請先選擇並初始化 RAG 系統")
                         return
-
-                    system = st.session_state.rag_system
-
+                    
+                    system = st.session_state.current_system
+                    
                     with st.spinner("🔍 正在查詢..."):
                         try:
                             print(f"🔍 UI層開始查詢: {question}")
                             print(f"🔧 使用系統類型: {type(system)}")
-
-                            # 同步呼叫查詢介面（優先使用帶記憶的查詢）
-                            if hasattr(system, 'query_with_context'):
-                                response = system.query_with_context(question)
-                            else:
-                                response = system.query(question)
-
+                            
+                            response = system.query(question)
+                            
                             print(f"✅ UI層查詢完成，響應長度: {len(str(response)) if response else 0}")
-
+                            
                             if response:
                                 # 顯示回答
                                 with st.chat_message("assistant"):
                                     st.write(response)
-
+                                    
                                     # 顯示參考來源
                                     st.expander("📚 參考來源").write("• 向量索引\n• 用戶文檔")
                             else:
                                 st.warning("未找到相關資訊")
-
+                                
                         except Exception as e:
                             error_msg = str(e)
                             error_type = type(e).__name__
-
+                            
                             print(f"❌ UI層捕獲錯誤:")
                             print(f"   錯誤類型: {error_type}")
                             print(f"   錯誤消息: {error_msg}")
-
+                            
                             # 特別檢查 ObjectApiResponse 錯誤
                             if "ObjectApiResponse" in error_msg or "await" in error_msg:
                                 print("🚨 UI層檢測到ObjectApiResponse錯誤！")
                                 print(f"   系統類型: {type(system)}")
                                 if hasattr(system, 'elasticsearch_client'):
                                     print(f"   ES客戶端類型: {type(system.elasticsearch_client)}")
-
+                            
                             import traceback
                             print(f"🔍 UI層完整錯誤堆疊:")
                             print(traceback.format_exc())
-
+                            
                             st.error(f"查詢時發生錯誤: {error_msg}")
                             st.write("抱歉，處理您的問題時發生錯誤。")
                             st.write(traceback.format_exc())
-
+                
                 # 直接呼叫同步查詢處理
                 handle_query(user_question)
                 
@@ -264,153 +254,43 @@ def render_personal_mode(components: dict, ux: UserExperience):
                 st.rerun()
         
         with col2:
-            st.markdown("## 📁 知識庫管理")
+            st.markdown("## 📊 知識庫狀態")
             
             # 檔案統計
             if st.session_state.rag_system:
                 stats = st.session_state.rag_system.get_document_statistics()
                 
                 # 統計卡片
-                col2_1, col2_2 = st.columns(2)
-                with col2_1:
-                    st.metric("📄 文檔數量", stats.get("total_documents", 0))
-                    st.metric("🧩 文本塊數", stats.get("total_nodes", 0))
-                with col2_2:
-                    # 使用統計
-                    usage_stats = ux.get_usage_stats()
-                    st.metric("📤 總上傳次數", usage_stats["total_uploads"])
-                    
-                    # 聊天統計
-                    chat_stats = chat_interface.get_chat_stats()
-                    st.metric("💬 對話次數", chat_stats["total_messages"])
+                st.metric("📄 文檔數量", stats.get("total_documents", 0))
+                st.metric("🧩 文本塊數", stats.get("total_nodes", 0))
                 
-                # 文件列表和管理
-                st.markdown("### 📋 文件列表")
-                render_file_management(st.session_state.rag_system)
+                # 使用統計
+                usage_stats = ux.get_usage_stats()
+                st.metric("📤 總上傳次數", usage_stats["total_uploads"])
+                
+                # 聊天統計
+                chat_stats = chat_interface.get_chat_stats()
+                st.metric("💬 對話次數", chat_stats["total_messages"])
             
             # 操作按鈕
             st.markdown("---")
             
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("📤 上傳更多檔案", use_container_width=True):
-                    st.session_state.show_upload = True
-                    st.rerun()
-                
-                if st.button("🗑️ 清空聊天", use_container_width=True):
-                    chat_interface.clear_chat()
-                    st.rerun()
+            if st.button("📤 上傳更多檔案", use_container_width=True):
+                st.session_state.show_upload = True
+                st.rerun()
             
-            with col_btn2:
-                if st.button("📋 匯出對話", use_container_width=True):
-                    export_text = chat_interface.export_chat()
-                    st.download_button(
-                        "下載對話記錄",
+            if st.button("🗑️ 清空聊天", use_container_width=True):
+                chat_interface.clear_chat()
+                st.rerun()
+            
+            if st.button("📋 匯出對話", use_container_width=True):
+                export_text = chat_interface.export_chat()
+                st.download_button(
+                    "下載對話記錄",
                     export_text,
                     file_name=f"chat_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
                     mime="text/markdown"
                 )
-                st.rerun()
-
-def render_file_management(rag_system):
-    """渲染文件管理界面"""
-    try:
-        # 獲取文件列表
-        files = rag_system.get_indexed_files()
-        
-        if not files:
-            st.info("📝 知識庫中暫無文件")
-            return
-        
-        # 顯示文件總數
-        st.write(f"共 {len(files)} 個文件")
-        
-        # 文件列表
-        for i, file_info in enumerate(files):
-            with st.container():
-                col1, col2, col3 = st.columns([3, 2, 1])
-                
-                with col1:
-                    # 文件圖標根據類型
-                    icon = "📄" if file_info['type'] == 'pdf' else "📝"
-                    st.write(f"{icon} **{file_info['name']}**")
-                    
-                    # 文件詳情
-                    size_mb = file_info['size'] / (1024 * 1024) if file_info['size'] > 0 else 0
-                    st.caption(f"📊 {file_info['node_count']} 個文本塊 • {size_mb:.2f} MB")
-                
-                with col2:
-                    # 文件信息
-                    st.write(f"📅 {file_info['upload_time']}")
-                    if file_info['page_count'] > 0:
-                        st.caption(f"📑 {file_info['page_count']} 頁")
-                
-                with col3:
-                    # 刪除按鈕
-                    if st.button(
-                        "🗑️", 
-                        key=f"delete_{i}",
-                        help=f"刪除 {file_info['name']}",
-                        use_container_width=True
-                    ):
-                        # 確認刪除
-                        if st.session_state.get(f'confirm_delete_{i}', False):
-                            # 執行刪除
-                            if rag_system.delete_file_from_knowledge_base(file_info['id']):
-                                st.success(f"✅ 已刪除 {file_info['name']}")
-                                st.rerun()
-                            else:
-                                st.error(f"❌ 刪除 {file_info['name']} 失敗")
-                            # 重置確認狀態
-                            st.session_state[f'confirm_delete_{i}'] = False
-                        else:
-                            # 第一次點擊，要求確認
-                            st.session_state[f'confirm_delete_{i}'] = True
-                            st.warning(f"⚠️ 確定要刪除 {file_info['name']} 嗎？再次點擊刪除按鈕確認。")
-                            st.rerun()
-                
-                st.divider()
-        
-        # 批量操作
-        if len(files) > 1:
-            st.markdown("### 🔧 批量操作")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button("🗑️ 清空知識庫", type="secondary"):
-                    if st.session_state.get('confirm_clear_all', False):
-                        # 執行批量刪除
-                        success_count = 0
-                        for file_info in files:
-                            if rag_system.delete_file_from_knowledge_base(file_info['id']):
-                                success_count += 1
-                        
-                        if success_count == len(files):
-                            st.success(f"✅ 已清空知識庫，刪除了 {success_count} 個文件")
-                        else:
-                            st.warning(f"⚠️ 部分文件刪除失敗，成功刪除 {success_count}/{len(files)} 個文件")
-                        
-                        st.session_state['confirm_clear_all'] = False
-                        st.rerun()
-                    else:
-                        st.session_state['confirm_clear_all'] = True
-                        st.warning("⚠️ 確定要清空整個知識庫嗎？這將刪除所有文件！再次點擊確認。")
-                        st.rerun()
-            
-            with col2:
-                # 重新索引按鈕
-                if st.button("🔄 重新索引", type="secondary"):
-                    with st.spinner("正在重新索引..."):
-                        try:
-                            # 這裡可以添加重新索引的邏輯
-                            st.success("✅ 重新索引完成")
-                        except Exception as e:
-                            st.error(f"❌ 重新索引失敗: {str(e)}")
-    
-    except Exception as e:
-        st.error(f"❌ 載入文件列表時發生錯誤: {str(e)}")
-        import traceback
-        st.write(traceback.format_exc())
 
 def render_demo_mode():
     """渲染演示模式（原有的茶葉系統）"""

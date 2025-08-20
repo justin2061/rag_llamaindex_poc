@@ -94,49 +94,9 @@ class ChromaVectorStoreManager:
             return None
     
     def migrate_from_simple_vector_store(self, old_index_dir: str = INDEX_DIR) -> bool:
-        """從 SimpleVectorStore 遷移數據到 ChromaDB"""
-        try:
-            # 檢查是否有舊的索引數據
-            if not os.path.exists(old_index_dir) or not os.listdir(old_index_dir):
-                st.info("沒有找到舊的索引數據，跳過遷移")
-                return True
-            
-            st.info("正在遷移舊的向量數據到 ChromaDB...")
-            
-            # 載入舊的索引
-            from llama_index.core import load_index_from_storage
-            old_storage_context = StorageContext.from_defaults(persist_dir=old_index_dir)
-            old_index = load_index_from_storage(old_storage_context)
-            
-            # 獲取新的儲存上下文
-            new_storage_context = self.get_storage_context()
-            if not new_storage_context:
-                return False
-            
-            # 重建索引到新的向量儲存
-            documents = []
-            for node_id, node in old_index.docstore.docs.items():
-                documents.append(node)
-            
-            if documents:
-                # 使用新的儲存上下文創建索引
-                new_index = VectorStoreIndex.from_documents(
-                    documents, 
-                    storage_context=new_storage_context
-                )
-                
-                # 持久化新索引
-                new_index.storage_context.persist(persist_dir=old_index_dir)
-                
-                st.success(f"✅ 成功遷移 {len(documents)} 個文檔到 ChromaDB")
-                return True
-            else:
-                st.warning("沒有找到可遷移的文檔")
-                return True
-                
-        except Exception as e:
-            st.error(f"數據遷移失敗: {str(e)}")
-            return False
+        """從 SimpleVectorStore 遷移數據到 ChromaDB (已停用)"""
+        st.warning("⚠️ SimpleVectorStore 已停用，不支持遷移")
+        return False
     
     def has_data(self) -> bool:
         """檢查 ChromaDB 是否有資料"""

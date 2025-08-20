@@ -3,9 +3,6 @@ from typing import List, Optional
 import streamlit as st
 from llama_index.core import VectorStoreIndex, Document, Settings, load_index_from_storage
 from llama_index.core.storage.storage_context import StorageContext
-from llama_index.core.storage.docstore import SimpleDocumentStore
-from llama_index.core.storage.index_store import SimpleIndexStore
-from llama_index.core.vector_stores import SimpleVectorStore
 from llama_index.llms.groq import Groq
 import requests
 import numpy as np

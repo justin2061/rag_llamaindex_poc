@@ -433,16 +433,15 @@ class EnhancedRAGSystem(RAGSystem):
                         st.success("✅ 成功使用 Elasticsearch 建立索引")
                         
                     except Exception as e:
-                        st.error(f"❌ Elasticsearch 索引創建失敗: {str(e)}")
-                        st.error("❌ 系統只支援 Elasticsearch 後端，請檢查 Elasticsearch 配置")
+                        st.warning(f"Elasticsearch 索引創建失敗: {str(e)}")
+                        st.error("❌ Elasticsearch 索引創建失敗，系統無法正常運行")
                         return None
                 
-                # 只使用 Elasticsearch，不提供回退選項
                 if index:
                     self.index = index
                     return index
                 else:
-                    st.error("❌ 索引創建失敗，請檢查 Elasticsearch 配置")
+                    st.error("索引創建失敗")
                     return None
                     
             except Exception as e:
@@ -450,20 +449,21 @@ class EnhancedRAGSystem(RAGSystem):
                 return None
     
     def load_existing_index(self) -> bool:
-        """載入現有的向量索引（僅支援 Elasticsearch）"""
+        """載入現有的向量索引 (優先使用 Elasticsearch)"""
         # 確保模型已初始化
         self._ensure_models_initialized()
         
         try:
-            # 只嘗試 Elasticsearch
+            # 優先嘗試 Elasticsearch
             if self.use_elasticsearch and self.elasticsearch_store:
-                st.info("從 Elasticsearch 載入索引...")
+                st.info("嘗試從 Elasticsearch 載入索引...")
                 try:
                     # 載入前做維度驗證
                     from config.config import ELASTICSEARCH_VECTOR_DIMENSION
                     if not self._validate_embedding_dimension(ELASTICSEARCH_VECTOR_DIMENSION):
                         st.error("❌ 維度不一致，停止載入索引。")
-                        return False
+                        self.use_elasticsearch = False
+                        # Elasticsearch 維度不一致，停止載入
                     
                     # 檢查 Elasticsearch 是否有資料
                     es_stats = self.elasticsearch_client.indices.stats(
@@ -485,18 +485,18 @@ class EnhancedRAGSystem(RAGSystem):
                         st.success(f"✅ 成功從 Elasticsearch 載入 {doc_count} 個文檔")
                         return True
                     else:
-                        st.info("📝 Elasticsearch 索引為空，請先上傳文檔")
-                        return False
+                        st.info("Elasticsearch 索引為空")
                         
                 except Exception as e:
-                    st.error(f"❌ Elasticsearch 載入失敗: {str(e)}")
-                    return False
-            else:
-                st.error("❌ 系統只支援 Elasticsearch 後端，請檢查 Elasticsearch 配置")
-                return False
+                    st.warning(f"Elasticsearch 載入失敗: {str(e)}")
+                    self.use_elasticsearch = False
+            
+            # 如果 Elasticsearch 載入失敗，系統無法正常運行
+            st.error("❌ Elasticsearch 載入失敗，系統無法正常運行")
+            return False
                 
         except Exception as e:
-            st.error(f"❌ 載入索引時發生未預期錯誤: {str(e)}")
+            st.error(f"載入索引時發生未預期錯誤: {str(e)}")
             return False
     
     
@@ -640,7 +640,6 @@ class EnhancedRAGSystem(RAGSystem):
         
         return stats
     
-    
     def get_indexed_files(self) -> List[Dict[str, Any]]:
         """獲取已索引的文件列表（僅支援 Elasticsearch）"""
         files = []
@@ -695,7 +694,6 @@ class EnhancedRAGSystem(RAGSystem):
             st.error(f"從 Elasticsearch 獲取文件列表失敗: {str(e)}")
         
         return files
-    
     
     def delete_file_from_knowledge_base(self, file_id: str) -> bool:
         """從知識庫中刪除指定文件"""
@@ -753,7 +751,6 @@ class EnhancedRAGSystem(RAGSystem):
         except Exception as e:
             st.error(f"從 Elasticsearch 刪除文件失敗: {str(e)}")
             return False
-    
     
     def _delete_from_filesystem(self, file_id: str):
         """從文件系統刪除文件（如果存在）"""

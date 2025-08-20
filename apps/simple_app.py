@@ -308,17 +308,9 @@ def delete_file(file_path):
         st.error(f"詳細錯誤: {traceback.format_exc()}")
 
 def clear_knowledge_base():
-    """完全清空知識庫（包括 Elasticsearch 和 SimpleVectorStore）"""
+    """完全清空 Elasticsearch 知識庫"""
     try:
-        # 1. 清除 SimpleVectorStore 索引
-        from config import INDEX_DIR
-        if os.path.exists(INDEX_DIR):
-            import shutil
-            shutil.rmtree(INDEX_DIR)
-            os.makedirs(INDEX_DIR, exist_ok=True)
-            st.info("✅ SimpleVectorStore 已清空")
-        
-        # 2. 清除 Elasticsearch 索引
+        # 清除 Elasticsearch 索引
         rag_system = st.session_state.rag_system
         if hasattr(rag_system, 'elasticsearch_client') and rag_system.elasticsearch_client:
             try:

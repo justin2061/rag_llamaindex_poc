@@ -127,7 +127,7 @@ class MainLayout:
         info_data = {
             "🔧 LlamaIndex": "0.10.25+",
             "🤖 LLM": "Groq LLama 3.3",
-            "📊 向量DB": "Elasticsearch + SimpleVectorStore",
+            "📊 向量DB": "Elasticsearch",
             "🕸️ 圖資料庫": "NetworkX",
             "🎨 前端": "Streamlit"
         }

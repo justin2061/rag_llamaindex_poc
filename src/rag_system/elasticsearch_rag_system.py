@@ -61,7 +61,9 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         
         # 然後手動設置標誌並初始化 Elasticsearch 
         self.use_elasticsearch = True
-        self._initialize_elasticsearch()
+        if self._initialize_elasticsearch():
+            # 如果初始化成功，嘗試載入現有索引
+            self.load_existing_index()
     
     def _initialize_elasticsearch(self):
         """初始化 Elasticsearch 連接和向量存儲"""
@@ -505,6 +507,41 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
     def get_elasticsearch_statistics(self) -> Dict[str, Any]:
         """獲取詳細的 Elasticsearch 統計資訊"""
         return self.get_enhanced_statistics()
+    
+    def get_document_statistics(self) -> Dict[str, Any]:
+        """覆寫父類方法，使用 Elasticsearch 專用統計"""
+        try:
+            # 使用 Elasticsearch 專用統計方法
+            enhanced_stats = self.get_enhanced_statistics()
+            
+            # 轉換為標準格式以保持兼容性
+            es_stats = enhanced_stats.get("elasticsearch_stats", {})
+            base_stats = enhanced_stats.get("base_statistics", {})
+            
+            return {
+                "total_documents": es_stats.get("document_count", 0),
+                "total_nodes": es_stats.get("document_count", 0),
+                "document_details": [],
+                "total_pages": 0,
+                "index_size_bytes": es_stats.get("index_size_bytes", 0),
+                "index_size_mb": es_stats.get("index_size_mb", 0)
+            }
+        except Exception as e:
+            st.error(f"獲取文檔統計時發生錯誤: {str(e)}")
+            return {
+                "total_documents": 0,
+                "total_nodes": 0,
+                "document_details": [],
+                "total_pages": 0
+            }
+    
+    def get_indexed_files(self) -> List[Dict[str, Any]]:
+        """獲取已索引的文件列表 (Elasticsearch 版本)"""
+        try:
+            return self.get_indexed_files_from_es()
+        except Exception as e:
+            st.error(f"獲取文件列表時發生錯誤: {str(e)}")
+            return []
     
     def delete_documents_by_source(self, source_filename: str) -> bool:
         """根據來源文件名刪除文檔"""

@@ -736,6 +736,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     'size_mb': round(total_size / (1024 * 1024), 1) if total_size > 0 else 0,
                     'file_type': file_type,
                     'timestamp': timestamp,
+                    'upload_time': timestamp,  # 添加 upload_time 字段兼容性
                     'source': 'elasticsearch'
                 })
             

@@ -10,19 +10,25 @@ import streamlit as st
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core import Settings
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+embedding_size = os.getenv("EMBEDDING_SIZE", 384)
 
 class SafeJinaEmbedding(BaseEmbedding):
     """安全的 Jina Embedding，包含完整的後備方案"""
     
-    def __init__(self, api_key: str = None, model: str = "jina-embeddings-v3", task: str = "text-matching", embed_batch_size: int = 10):
+    def __init__(self, api_key: str = None, model: str = "jina-embeddings-v3", task: str = "text-matching", embed_batch_size: int = 10, dimensions: int = embedding_size):
         super().__init__(embed_batch_size=embed_batch_size)
         
         # 設置屬性 - 避免與 Pydantic 衝突
         object.__setattr__(self, '_api_key', api_key)
         object.__setattr__(self, '_model', model)
         object.__setattr__(self, '_task', task)
+        object.__setattr__(self, '_dimensions', dimensions)
         object.__setattr__(self, '_url', 'https://api.jina.ai/v1/embeddings')
-        object.__setattr__(self, '_embed_dim', 1024)  # Jina v3 維度
+        object.__setattr__(self, '_embed_dim', dimensions)  # 使用指定的維度
         
         # 檢查是否有有效的 API key
         object.__setattr__(self, '_use_api', api_key and api_key.strip() and api_key != "dummy")
@@ -75,6 +81,7 @@ class SafeJinaEmbedding(BaseEmbedding):
         data = {
             "model": self.model,
             "task": self.task,
+            "dimensions": self._dimensions,
             "truncate": True,
             "input": texts
         }
@@ -157,7 +164,8 @@ def setup_safe_embedding(jina_api_key: str = None):
     embedding_model = SafeJinaEmbedding(
         api_key=jina_api_key,
         model="jina-embeddings-v3",
-        task="text-matching"
+        task="text-matching",
+        dimensions=embedding_size  # 匹配 Elasticsearch 索引維度
     )
     
     # 設置為全域預設

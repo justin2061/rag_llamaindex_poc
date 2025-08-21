@@ -1,0 +1,36 @@
+{
+  "timestamp": "2025-08-21T16:42:43.146745",
+  "elasticsearch_config": {
+    "host": "elasticsearch",
+    "port": 9200,
+    "index_name": "rag_intelligent_assistant",
+    "dimension": 384,
+    "shards": 1,
+    "replicas": 0,
+    "similarity": "cosine"
+  },
+  "mapping_file": "index_mapping.json",
+  "system_info": {
+    "embedding_provider": "unknown",
+    "llm_model": "unknown"
+  }
+}
+--------------------------------------------------
+{
+  "timestamp": "2025-08-21T16:44:35.104168",
+  "elasticsearch_config": {
+    "host": "elasticsearch",
+    "port": 9200,
+    "index_name": "rag_intelligent_assistant",
+    "dimension": 384,
+    "shards": 1,
+    "replicas": 0,
+    "similarity": "cosine"
+  },
+  "mapping_file": "index_mapping.json",
+  "system_info": {
+    "embedding_provider": "unknown",
+    "llm_model": "unknown"
+  }
+}
+--------------------------------------------------

@@ -122,7 +122,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             'index_name': ELASTICSEARCH_INDEX_NAME or 'rag_intelligent_assistant',
             'shards': ELASTICSEARCH_SHARDS or 1,
             'replicas': ELASTICSEARCH_REPLICAS or 0,
-            'dimension': ELASTICSEARCH_VECTOR_DIMENSION or 1024,
+            'dimension': ELASTICSEARCH_VECTOR_DIMENSION or 384,
             'similarity': ELASTICSEARCH_SIMILARITY or 'cosine',
             'text_field': 'content',
             'vector_field': 'embedding',
@@ -186,6 +186,94 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             st.error(f"❌ Elasticsearch 客戶端設置失敗: {str(e)}")
             return False
     
+    def _check_and_update_mapping(self, es_client, new_mapping: dict) -> bool:
+        """檢查並更新現有索引的 mapping（如果需要）"""
+        try:
+            # 獲取現有 mapping
+            current_mapping_response = es_client.indices.get_mapping(index=self.index_name)
+            current_mapping = current_mapping_response[self.index_name]['mappings']
+            
+            # 檢查向量維度
+            current_embedding = current_mapping.get('properties', {}).get('embedding', {})
+            current_dims = current_embedding.get('dims')
+            new_dims = new_mapping['mappings']['properties']['embedding']['dims']
+            
+            if current_dims != new_dims:
+                st.warning(f"⚠️ 檢測到向量維度變更: {current_dims} → {new_dims}")
+                st.warning("💡 向量維度變更需要重建索引。請考慮:")
+                st.warning("   1. 備份現有數據")
+                st.warning("   2. 刪除現有索引")
+                st.warning("   3. 重新創建索引並重新索引數據")
+                return False
+            
+            # 檢查是否需要添加新字段
+            current_props = current_mapping.get('properties', {})
+            new_props = new_mapping['mappings']['properties']
+            
+            missing_fields = []
+            for field_name, field_config in new_props.items():
+                if field_name not in current_props:
+                    missing_fields.append(field_name)
+                elif field_name == 'metadata':
+                    # 檢查 metadata 子字段
+                    current_metadata_props = current_props[field_name].get('properties', {})
+                    new_metadata_props = field_config.get('properties', {})
+                    for sub_field, sub_config in new_metadata_props.items():
+                        if sub_field not in current_metadata_props:
+                            missing_fields.append(f"metadata.{sub_field}")
+            
+            if missing_fields:
+                st.info(f"📝 檢測到新字段需要添加: {missing_fields}")
+                try:
+                    # 動態添加新字段到現有 mapping
+                    for field in missing_fields:
+                        if '.' in field:
+                            # metadata 子字段
+                            field_parts = field.split('.')
+                            parent_field = field_parts[0]
+                            sub_field = field_parts[1]
+                            
+                            field_mapping = {
+                                "properties": {
+                                    sub_field: new_props[parent_field]['properties'][sub_field]
+                                }
+                            }
+                            
+                            es_client.indices.put_mapping(
+                                index=self.index_name,
+                                body={
+                                    "properties": {
+                                        parent_field: field_mapping
+                                    }
+                                }
+                            )
+                        else:
+                            # 頂層字段
+                            field_mapping = {
+                                "properties": {
+                                    field: new_props[field]
+                                }
+                            }
+                            es_client.indices.put_mapping(
+                                index=self.index_name,
+                                body=field_mapping
+                            )
+                    
+                    st.success(f"✅ 成功添加新字段: {missing_fields}")
+                    
+                except Exception as update_error:
+                    st.warning(f"⚠️ 無法自動更新 mapping: {update_error}")
+                    st.info("💡 請手動檢查 mapping 配置")
+            
+            else:
+                st.info("✅ 現有 mapping 配置已是最新")
+            
+            return True
+            
+        except Exception as e:
+            st.warning(f"⚠️ 檢查 mapping 時發生錯誤: {e}")
+            return True  # 繼續執行，不阻塞系統啟動
+    
     def _create_elasticsearch_index(self) -> bool:
         """創建 Elasticsearch 索引"""
         try:
@@ -208,48 +296,63 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 st.error("❌ 嵌入維度驗證失敗，停止建立索引。")
                 return False
             
-            # 索引映射設定 (使用中文分析器)
-            index_mapping = {
-                "settings": {
-                    "number_of_shards": config['shards'],
-                    "number_of_replicas": config['replicas'],
-                    "analysis": {
-                        "analyzer": {
-                            "chinese_analyzer": {
-                                "type": "custom",
-                                "tokenizer": "standard",
-                                "filter": ["lowercase", "cjk_width", "cjk_bigram"]
+            # 使用配置文件加載索引映射
+            try:
+                from config.elasticsearch.mapping_loader import ElasticsearchMappingLoader
+                mapping_loader = ElasticsearchMappingLoader()
+                index_mapping = mapping_loader.create_mapping_with_config(config)
+                
+                # 驗證配置
+                if not mapping_loader.validate_mapping(index_mapping):
+                    raise ValueError("Mapping 配置驗證失敗")
+                
+                st.info(f"✅ 成功從配置文件加載 Elasticsearch mapping")
+                print(f"📋 Mapping 維度: {config['dimension']}")
+                
+            except Exception as mapping_error:
+                # 如果無法加載配置文件，使用後備的硬編碼配置
+                st.warning(f"⚠️ 無法加載 mapping 配置文件，使用默認配置: {str(mapping_error)}")
+                index_mapping = {
+                    "settings": {
+                        "number_of_shards": config['shards'],
+                        "number_of_replicas": config['replicas'],
+                        "analysis": {
+                            "analyzer": {
+                                "chinese_analyzer": {
+                                    "type": "custom",
+                                    "tokenizer": "standard",
+                                    "filter": ["lowercase", "cjk_width", "cjk_bigram"]
+                                }
                             }
                         }
-                    }
-                },
-                "mappings": {
-                    "properties": {
-                        config['text_field']: {
-                            "type": "text",
-                            "analyzer": "chinese_analyzer",
-                            "search_analyzer": "chinese_analyzer"
-                        },
-                        config['vector_field']: {
-                            "type": "dense_vector",
-                            "dims": config['dimension'],
-                            "index": True,
-                            "similarity": config['similarity']
-                        },
-                        "metadata": {
-                            "type": "object",
-                            "properties": {
-                                "source": {"type": "keyword"},
-                                "page": {"type": "integer"},
-                                "chunk_id": {"type": "keyword"},
-                                "timestamp": {"type": "date"},
-                                "file_type": {"type": "keyword"},
-                                "file_size": {"type": "integer"}
+                    },
+                    "mappings": {
+                        "properties": {
+                            config['text_field']: {
+                                "type": "text",
+                                "analyzer": "chinese_analyzer",
+                                "search_analyzer": "chinese_analyzer"
+                            },
+                            config['vector_field']: {
+                                "type": "dense_vector",
+                                "dims": config['dimension'],
+                                "index": True,
+                                "similarity": config['similarity']
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "properties": {
+                                    "source": {"type": "keyword"},
+                                    "page": {"type": "integer"},
+                                    "chunk_id": {"type": "keyword"},
+                                    "timestamp": {"type": "date"},
+                                    "file_type": {"type": "keyword"},
+                                    "file_size": {"type": "integer"}
+                                }
                             }
                         }
                     }
                 }
-            }
             
             # 檢查索引是否存在（使用同步客戶端）
             sync_client = getattr(self, 'sync_elasticsearch_client', None)
@@ -262,9 +365,34 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 })
                 self.sync_elasticsearch_client = sync_client
             
-            if sync_client.indices.exists(index=self.index_name):
+            # 檢查是否為第一次啟動（索引不存在）
+            index_exists = sync_client.indices.exists(index=self.index_name)
+            is_first_time_startup = not index_exists
+            
+            if index_exists:
                 st.info(f"📚 索引 '{self.index_name}' 已存在")
+                # 檢查現有索引的 mapping 是否需要更新
+                self._check_and_update_mapping(sync_client, index_mapping)
                 return True
+            
+            # 第一次啟動 - 自動創建 mapping
+            if is_first_time_startup:
+                st.info(f"🚀 檢測到第一次啟動，將自動創建 Elasticsearch 索引和 mapping")
+                print(f"📋 使用配置: 維度={config['dimension']}, 分片={config['shards']}, 副本={config['replicas']}")
+                
+                # 在第一次啟動時提供 mapping 選擇
+                mapping_choice = self._get_mapping_choice_for_first_startup()
+                if mapping_choice and mapping_choice != "index_mapping.json":
+                    try:
+                        from config.elasticsearch.mapping_loader import ElasticsearchMappingLoader
+                        mapping_loader = ElasticsearchMappingLoader()
+                        index_mapping = mapping_loader.create_mapping_with_config(config)
+                        st.info(f"📋 使用 {mapping_choice} 配置創建索引")
+                    except Exception as e:
+                        st.warning(f"⚠️ 無法加載 {mapping_choice}，使用默認配置: {e}")
+                
+                # 記錄第一次啟動的配置
+                self._log_first_startup_config(config, mapping_choice or "index_mapping.json")
             
             # 創建索引（使用同步客戶端）
             try:
@@ -1066,7 +1194,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     vector_field=self.elasticsearch_config['vector_field'],
                     text_field=self.elasticsearch_config['text_field'],
                     metadata_field='metadata',
-                    embedding_dim=self.elasticsearch_config.get('dimension', 1024)
+                    embedding_dim=self.elasticsearch_config.get('dimension', 384)
                 )
                 print("✅ 向量存儲重新創建成功（使用同步客戶端）")
                 return True
@@ -1179,3 +1307,91 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 st.error(f"❌ Elasticsearch 索引建立失敗: {str(e)}")
                 print(f"❌ 詳細錯誤: {traceback.format_exc()}")
                 return None
+    
+    def _get_mapping_choice_for_first_startup(self) -> Optional[str]:
+        """為第一次啟動獲取 mapping 選擇
+        
+        Returns:
+            str: 選擇的 mapping 文件名，如果使用默認則返回 None
+        """
+        try:
+            from config.elasticsearch.mapping_loader import ElasticsearchMappingLoader
+            loader = ElasticsearchMappingLoader()
+            available_mappings = loader.list_available_mappings()
+            
+            # 如果只有一個默認配置文件，直接使用
+            if len(available_mappings) <= 1:
+                return "index_mapping.json"
+            
+            # 簡化選擇：優先使用默認配置
+            # 在生產環境中，可以通過環境變數或配置文件指定特定的 mapping
+            default_mapping = "index_mapping.json"
+            if default_mapping in available_mappings:
+                print(f"📋 第一次啟動使用默認 mapping: {default_mapping}")
+                return default_mapping
+            
+            # 如果默認文件不存在，使用第一個可用的
+            if available_mappings:
+                selected = available_mappings[0]
+                print(f"📋 第一次啟動使用可用 mapping: {selected}")
+                return selected
+                
+            return None
+            
+        except Exception as e:
+            print(f"⚠️ 獲取 mapping 選擇失敗: {e}")
+            return None
+    
+    def _log_first_startup_config(self, config: Dict[str, Any], mapping_file: str):
+        """記錄第一次啟動的配置信息
+        
+        Args:
+            config: Elasticsearch 配置
+            mapping_file: 使用的 mapping 文件名
+        """
+        try:
+            startup_info = {
+                "timestamp": datetime.now().isoformat(),
+                "elasticsearch_config": {
+                    "host": config.get('host'),
+                    "port": config.get('port'),
+                    "index_name": config.get('index_name'),
+                    "dimension": config.get('dimension'),
+                    "shards": config.get('shards'),
+                    "replicas": config.get('replicas'),
+                    "similarity": config.get('similarity')
+                },
+                "mapping_file": mapping_file,
+                "system_info": {
+                    "embedding_provider": config.get('embedding_provider', 'unknown'),
+                    "llm_model": config.get('llm_model', 'unknown')
+                }
+            }
+            
+            # 記錄到控制台
+            print(f"📋 第一次啟動配置記錄:")
+            print(f"   時間: {startup_info['timestamp']}")
+            print(f"   ES主機: {config.get('host')}:{config.get('port')}")
+            print(f"   索引名稱: {config.get('index_name')}")
+            print(f"   向量維度: {config.get('dimension')}")
+            print(f"   Mapping文件: {mapping_file}")
+            print(f"   分片配置: {config.get('shards')} 分片, {config.get('replicas')} 副本")
+            
+            # 可選：保存到文件（如果需要持久化記錄）
+            try:
+                import os
+                log_dir = os.path.join("data", "logs")
+                os.makedirs(log_dir, exist_ok=True)
+                
+                log_file = os.path.join(log_dir, "elasticsearch_startup.log")
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{json.dumps(startup_info, indent=2, ensure_ascii=False)}\n")
+                    f.write("-" * 50 + "\n")
+                
+                print(f"📄 啟動記錄已保存到: {log_file}")
+                
+            except Exception as log_save_error:
+                print(f"⚠️ 無法保存啟動記錄到文件: {log_save_error}")
+            
+        except Exception as e:
+            print(f"⚠️ 記錄第一次啟動配置失敗: {e}")

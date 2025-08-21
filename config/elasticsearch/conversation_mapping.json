@@ -1,0 +1,84 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "analyzer": {
+        "chinese_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "cjk_width", "cjk_bigram"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "conversation_id": {
+        "type": "keyword"
+      },
+      "session_id": {
+        "type": "keyword"
+      },
+      "question": {
+        "type": "text",
+        "analyzer": "chinese_analyzer",
+        "search_analyzer": "chinese_analyzer"
+      },
+      "answer": {
+        "type": "text",
+        "analyzer": "chinese_analyzer",
+        "search_analyzer": "chinese_analyzer"
+      },
+      "sources": {
+        "type": "nested",
+        "properties": {
+          "source": {
+            "type": "keyword"
+          },
+          "content": {
+            "type": "text",
+            "analyzer": "chinese_analyzer"
+          },
+          "score": {
+            "type": "float"
+          },
+          "metadata": {
+            "type": "object",
+            "enabled": false
+          }
+        }
+      },
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "keyword"
+          },
+          "embedding_model": {
+            "type": "keyword"
+          },
+          "response_time_ms": {
+            "type": "integer"
+          },
+          "source_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "timestamp": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "rating": {
+        "type": "integer"
+      },
+      "feedback": {
+        "type": "text"
+      },
+      "tags": {
+        "type": "keyword"
+      }
+    }
+  }
+}

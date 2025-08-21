@@ -1,0 +1,133 @@
+{
+  "settings": {
+    "number_of_shards": "${SHARDS}",
+    "number_of_replicas": "${REPLICAS}",
+    "refresh_interval": "30s",
+    "analysis": {
+      "analyzer": {
+        "optimized_chinese_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "cjk_width", "cjk_bigram", "trim"]
+        },
+        "exact_match_analyzer": {
+          "type": "keyword"
+        }
+      }
+    },
+    "index": {
+      "max_result_window": 50000,
+      "highlight": {
+        "max_analyzed_offset": 1000000
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "content": {
+        "type": "text",
+        "analyzer": "optimized_chinese_analyzer",
+        "search_analyzer": "optimized_chinese_analyzer",
+        "term_vector": "with_positions_offsets",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          },
+          "exact": {
+            "type": "text",
+            "analyzer": "exact_match_analyzer"
+          }
+        }
+      },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": "${DIMENSION}",
+        "index": true,
+        "similarity": "${SIMILARITY}",
+        "index_options": {
+          "type": "int8_hnsw",
+          "m": 16,
+          "ef_construction": 100
+        }
+      },
+      "metadata": {
+        "type": "object",
+        "dynamic": false,
+        "properties": {
+          "source": {
+            "type": "text",
+            "analyzer": "keyword",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 512
+              }
+            }
+          },
+          "page": {
+            "type": "integer",
+            "index": true
+          },
+          "chunk_id": {
+            "type": "keyword",
+            "index": false
+          },
+          "timestamp": {
+            "type": "date",
+            "format": "strict_date_optional_time||epoch_millis",
+            "index": true
+          },
+          "file_type": {
+            "type": "keyword",
+            "index": true
+          },
+          "file_size": {
+            "type": "long",
+            "index": false
+          },
+          "file_path": {
+            "type": "text",
+            "index": false,
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 1024,
+                "index": false
+              }
+            }
+          },
+          "type": {
+            "type": "keyword",
+            "index": true
+          },
+          "original_format": {
+            "type": "keyword",
+            "index": false
+          },
+          "uploaded_at": {
+            "type": "keyword",
+            "index": false
+          },
+          "total_pages": {
+            "type": "integer",
+            "index": false
+          },
+          "category": {
+            "type": "keyword",
+            "index": true
+          },
+          "ocr_confidence": {
+            "type": "keyword",
+            "index": false
+          },
+          "processed_at": {
+            "type": "keyword",
+            "index": false
+          }
+        }
+      }
+    }
+  }
+}

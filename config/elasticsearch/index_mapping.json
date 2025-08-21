@@ -1,0 +1,125 @@
+{
+  "settings": {
+    "number_of_shards": ${SHARDS},
+    "number_of_replicas": ${REPLICAS},
+    "analysis": {
+      "analyzer": {
+        "chinese_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "cjk_width", "cjk_bigram"]
+        },
+        "multilingual_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "cjk_width", "cjk_bigram", "stemmer"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "content": {
+        "type": "text",
+        "analyzer": "chinese_analyzer",
+        "search_analyzer": "chinese_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": ${DIMENSION},
+        "index": true,
+        "similarity": "${SIMILARITY}"
+      },
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "page": {
+            "type": "integer"
+          },
+          "chunk_id": {
+            "type": "keyword"
+          },
+          "timestamp": {
+            "type": "date",
+            "format": "strict_date_optional_time||epoch_millis"
+          },
+          "file_type": {
+            "type": "keyword"
+          },
+          "file_size": {
+            "type": "long"
+          },
+          "file_path": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 1024
+              }
+            }
+          },
+          "type": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "original_format": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "uploaded_at": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "total_pages": {
+            "type": "long"
+          },
+          "category": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "ocr_confidence": {
+            "type": "keyword"
+          },
+          "processed_at": {
+            "type": "keyword"
+          }
+        }
+      }
+    }
+  }
+}

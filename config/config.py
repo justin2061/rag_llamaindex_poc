@@ -71,8 +71,8 @@ USER_UPLOADS_DIR = os.path.join(DATA_DIR, "user_uploads")
 os.makedirs(USER_UPLOADS_DIR, exist_ok=True)
 
 # Streamlit 設定
-PAGE_TITLE = "台灣茶葉知識問答系統"
-PAGE_ICON = "🍵"
+PAGE_TITLE = "RAG智能問答系統"
+PAGE_ICON = "🤖"
 
 # Elasticsearch 設定
 ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "localhost")

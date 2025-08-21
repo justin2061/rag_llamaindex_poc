@@ -197,58 +197,103 @@ class EnhancedRAGSystem(RAGSystem):
     
     def process_uploaded_files(self, uploaded_files) -> List[Document]:
         """處理上傳的檔案"""
+        import logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"🚀 開始處理上傳文件，共 {len(uploaded_files) if uploaded_files else 0} 個文件")
+        
         if not uploaded_files:
+            logger.warning("⚠️ 沒有上傳的文件")
             return []
         
         documents = []
         
-        for uploaded_file in uploaded_files:
+        for i, uploaded_file in enumerate(uploaded_files):
+            logger.info(f"📄 處理文件 {i+1}/{len(uploaded_files)}: {uploaded_file.name}")
+            logger.info(f"   - 文件大小: {uploaded_file.size:,} bytes ({uploaded_file.size/(1024*1024):.2f} MB)")
+            logger.info(f"   - 文件類型: {uploaded_file.type if hasattr(uploaded_file, 'type') else '未知'}")
+            
             try:
                 # 儲存檔案
+                logger.info(f"💾 正在儲存文件: {uploaded_file.name}")
                 file_path = self.file_manager.save_uploaded_file(uploaded_file)
+                
                 if not file_path:
+                    logger.error(f"❌ 文件儲存失敗: {uploaded_file.name}")
                     continue
+                    
+                logger.info(f"✅ 文件儲存成功: {file_path}")
                 
                 # 根據檔案類型處理
                 if self.file_manager.is_image_file(uploaded_file.name):
+                    logger.info(f"🖼️ 處理圖片文件: {uploaded_file.name}")
                     # 圖片OCR處理
                     doc = self._process_image_file(uploaded_file, file_path)
                 elif self.file_manager.is_document_file(uploaded_file.name):
+                    logger.info(f"📝 處理文檔文件: {uploaded_file.name}")
                     # 文檔處理
                     doc = self._process_document_file(uploaded_file, file_path)
                 else:
+                    logger.warning(f"❓ 不支援的檔案類型: {uploaded_file.name}")
                     st.warning(f"不支援的檔案類型: {uploaded_file.name}")
                     continue
                 
                 if doc:
+                    logger.info(f"✅ 文件處理成功，生成文檔: {uploaded_file.name}")
                     documents.append(doc)
+                else:
+                    logger.error(f"❌ 文件處理失敗，沒有生成文檔: {uploaded_file.name}")
                     
             except Exception as e:
+                logger.error(f"❌ 處理檔案 {uploaded_file.name} 時發生錯誤: {str(e)}")
+                logger.error(f"   詳細錯誤信息: {type(e).__name__}: {str(e)}")
+                import traceback
+                logger.error(f"   錯誤堆疊: {traceback.format_exc()}")
                 st.error(f"處理檔案 {uploaded_file.name} 時發生錯誤: {str(e)}")
                 continue
         
+        logger.info(f"🎉 文件處理完成，成功處理 {len(documents)}/{len(uploaded_files)} 個文件")
         return documents
     
     def _process_image_file(self, uploaded_file, file_path: str) -> Optional[Document]:
         """處理圖片檔案"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"🖼️ 開始處理圖片文件: {uploaded_file.name}")
+        
         if not self.ocr_processor.is_available():
+            logger.warning(f"⚠️ OCR服務不可用，跳過圖片檔案: {uploaded_file.name}")
             st.warning(f"OCR服務不可用，跳過圖片檔案: {uploaded_file.name}")
             return None
         
         try:
+            logger.info(f"📖 正在讀取圖片數據: {uploaded_file.name}")
             # 讀取圖片數據
             image_data = self.file_manager.get_file_content(os.path.basename(file_path))
             if not image_data:
+                logger.error(f"❌ 無法讀取圖片數據: {uploaded_file.name}")
                 return None
+            
+            logger.info(f"   - 圖片數據大小: {len(image_data):,} bytes")
             
             # 取得檔案擴展名
             file_ext = os.path.splitext(uploaded_file.name)[1].lower().lstrip('.')
+            logger.info(f"   - 檔案格式: {file_ext}")
             
             # OCR處理
+            logger.info(f"🔍 開始OCR處理: {uploaded_file.name}")
             with st.spinner(f"正在進行OCR處理: {uploaded_file.name}"):
                 ocr_result = self.ocr_processor.extract_text_from_image(image_data, file_ext)
             
+            logger.info(f"   - OCR處理完成，成功: {ocr_result['success']}")
+            
             if ocr_result['success']:
+                text_length = len(ocr_result['text'])
+                logger.info(f"   - 提取的文本長度: {text_length} 字符")
+                logger.info(f"   - OCR信心度: {ocr_result.get('confidence', 'unknown')}")
+                
                 # 建立文檔
                 document = Document(
                     text=ocr_result['text'],
@@ -262,39 +307,60 @@ class EnhancedRAGSystem(RAGSystem):
                     }
                 )
                 
+                logger.info(f"✅ OCR處理成功: {uploaded_file.name}")
                 st.success(f"✅ OCR處理成功: {uploaded_file.name}")
                 return document
             else:
-                st.error(f"❌ OCR處理失敗: {uploaded_file.name} - {ocr_result['error']}")
+                error_msg = ocr_result.get('error', '未知錯誤')
+                logger.error(f"❌ OCR處理失敗: {uploaded_file.name} - {error_msg}")
+                st.error(f"❌ OCR處理失敗: {uploaded_file.name} - {error_msg}")
                 return None
                 
         except Exception as e:
+            logger.error(f"❌ 處理圖片檔案時發生錯誤: {uploaded_file.name} - {str(e)}")
+            import traceback
+            logger.error(f"   錯誤堆疊: {traceback.format_exc()}")
             st.error(f"處理圖片檔案時發生錯誤: {str(e)}")
             return None
     
     def _process_document_file(self, uploaded_file, file_path: str) -> Optional[Document]:
         """處理文檔檔案"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"📝 開始處理文檔文件: {uploaded_file.name}")
+        
         try:
             file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+            logger.info(f"   - 檔案格式: {file_ext}")
+            logger.info(f"   - 檔案路徑: {file_path}")
             
             if file_ext == '.pdf':
+                logger.info(f"📄 開始PDF處理: {uploaded_file.name}")
                 # PDF處理
                 docs = self.load_pdfs([file_path])
                 if docs:
                     doc = docs[0]
+                    logger.info(f"   - PDF解析成功，文本長度: {len(doc.text)} 字符")
                     # 更新元數據
                     doc.metadata.update({
                         "type": "user_document",
                         "file_size": uploaded_file.size,
                         "uploaded_at": st.session_state.get('current_time', 'unknown')
                     })
+                    logger.info(f"✅ PDF處理完成: {uploaded_file.name}")
                     return doc
+                else:
+                    logger.error(f"❌ PDF處理失敗，無法解析: {uploaded_file.name}")
+                    return None
             
             elif file_ext == '.txt':
+                logger.info(f"📄 開始TXT處理: {uploaded_file.name}")
                 # 文字檔處理
                 with open(file_path, 'r', encoding='utf-8') as f:
                     text = f.read()
                 
+                logger.info(f"   - TXT解析成功，文本長度: {len(text)} 字符")
                 document = Document(
                     text=text,
                     metadata={
@@ -305,13 +371,16 @@ class EnhancedRAGSystem(RAGSystem):
                         "uploaded_at": st.session_state.get('current_time', 'unknown')
                     }
                 )
+                logger.info(f"✅ TXT處理完成: {uploaded_file.name}")
                 return document
             
             elif file_ext in ['.md', '.markdown']:
+                logger.info(f"📝 開始Markdown處理: {uploaded_file.name}")
                 # Markdown檔處理
                 with open(file_path, 'r', encoding='utf-8') as f:
                     text = f.read()
                 
+                logger.info(f"   - Markdown解析成功，文本長度: {len(text)} 字符")
                 document = Document(
                     text=text,
                     metadata={
@@ -322,9 +391,11 @@ class EnhancedRAGSystem(RAGSystem):
                         "uploaded_at": st.session_state.get('current_time', 'unknown')
                     }
                 )
+                logger.info(f"✅ Markdown處理完成: {uploaded_file.name}")
                 return document
             
             elif file_ext == '.docx':
+                logger.info(f"📄 開始DOCX處理: {uploaded_file.name}")
                 # DOCX檔處理
                 try:
                     import docx
@@ -333,6 +404,7 @@ class EnhancedRAGSystem(RAGSystem):
                     for paragraph in doc.paragraphs:
                         text += paragraph.text + "\n"
                     
+                    logger.info(f"   - DOCX解析成功，文本長度: {len(text)} 字符")
                     document = Document(
                         text=text,
                         metadata={
@@ -343,19 +415,27 @@ class EnhancedRAGSystem(RAGSystem):
                             "uploaded_at": st.session_state.get('current_time', 'unknown')
                         }
                     )
+                    logger.info(f"✅ DOCX處理完成: {uploaded_file.name}")
                     return document
                     
-                except ImportError:
+                except ImportError as e:
+                    logger.error(f"❌ DOCX處理失敗，缺少依賴: {uploaded_file.name} - {str(e)}")
                     st.error("需要安裝 python-docx 套件來處理 DOCX 檔案")
                     return None
                 except Exception as e:
+                    logger.error(f"❌ DOCX處理失敗: {uploaded_file.name} - {str(e)}")
                     st.error(f"DOCX 檔案處理失敗: {str(e)}")
                     return None
             
             else:
+                logger.warning(f"❓ 暫不支援的文檔格式: {file_ext} - {uploaded_file.name}")
                 st.warning(f"暫不支援的文檔格式: {file_ext}")
                 return None
+                
         except Exception as e:
+            logger.error(f"❌ 處理文檔檔案時發生錯誤: {uploaded_file.name} - {str(e)}")
+            import traceback
+            logger.error(f"   錯誤堆疊: {traceback.format_exc()}")
             st.error(f"處理文檔檔案時發生錯誤: {str(e)}")
             return None
     

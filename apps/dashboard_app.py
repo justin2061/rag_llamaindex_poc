@@ -586,26 +586,44 @@ def get_file_icon(file_type: str) -> str:
 
 def process_uploaded_files(uploaded_files):
     """處理上傳的文件"""
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"🎬 Dashboard: 開始處理上傳文件流程，文件數量: {len(uploaded_files) if uploaded_files else 0}")
+    
     with st.spinner("正在處理文檔..."):
         try:
+            logger.info("📋 Dashboard: 調用 RAG 系統處理文件")
             # 處理文件
             documents = st.session_state.rag_system.process_uploaded_files(uploaded_files)
             
+            logger.info(f"📊 Dashboard: RAG 系統返回 {len(documents)} 個處理好的文檔")
+            
             if documents:
+                logger.info("🔧 Dashboard: 開始創建向量索引")
                 # 創建索引
                 index = st.session_state.rag_system.create_index(documents)
                 
                 if index:
+                    logger.info("🔍 Dashboard: 設置查詢引擎")
                     st.session_state.rag_system.setup_query_engine()
                     st.session_state.system_ready = True
+                    logger.info(f"✅ Dashboard: 處理完成，成功處理 {len(documents)} 個文檔")
                     st.success(f"✅ 成功處理 {len(documents)} 個文檔！")
                     st.balloons()
                     st.rerun()
                 else:
+                    logger.error("❌ Dashboard: 索引創建失敗")
                     st.error("❌ 索引創建失敗")
             else:
+                logger.error("❌ Dashboard: 文檔處理失敗，沒有返回任何文檔")
                 st.error("❌ 文檔處理失敗")
+                
         except Exception as e:
+            logger.error(f"❌ Dashboard: 處理文檔時發生錯誤: {str(e)}")
+            import traceback
+            logger.error(f"   錯誤堆疊: {traceback.format_exc()}")
             st.error(f"❌ 處理文檔時發生錯誤: {str(e)}")
 
 def handle_file_deletion(file_info: Dict, index: int):

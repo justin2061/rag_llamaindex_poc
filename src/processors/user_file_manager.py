@@ -14,19 +14,39 @@ class UserFileManager:
         
     def validate_file(self, uploaded_file) -> bool:
         """驗證上傳的檔案"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"🔍 FileManager: 驗證文件 - {uploaded_file.name}")
+        
         # 檢查檔案格式
         file_ext = os.path.splitext(uploaded_file.name)[1].lower().lstrip('.')
+        logger.info(f"   - 檔案副檔名: {file_ext}")
+        logger.info(f"   - 支援的格式: {self.supported_file_types}")
+        
         if file_ext not in self.supported_file_types:
+            logger.error(f"❌ FileManager: 不支援的檔案格式: {file_ext} - {uploaded_file.name}")
             st.error(f"不支援的檔案格式: {file_ext}")
             return False
         
+        logger.info(f"✅ FileManager: 檔案格式驗證通過 - {file_ext}")
+        
         # 檢查檔案大小
-        max_size = self.max_image_size if self.is_image_file(uploaded_file.name) else self.max_file_size
+        is_image = self.is_image_file(uploaded_file.name)
+        max_size = self.max_image_size if is_image else self.max_file_size
+        max_size_mb = max_size / (1024 * 1024)
+        file_size_mb = uploaded_file.size / (1024 * 1024)
+        
+        logger.info(f"   - 文件類型: {'圖片' if is_image else '文檔'}")
+        logger.info(f"   - 文件大小: {file_size_mb:.2f} MB")
+        logger.info(f"   - 大小限制: {max_size_mb:.2f} MB")
+        
         if uploaded_file.size > max_size:
-            max_size_mb = max_size / (1024 * 1024)
-            st.error(f"檔案大小超過限制: {uploaded_file.size / (1024 * 1024):.1f}MB > {max_size_mb}MB")
+            logger.error(f"❌ FileManager: 檔案大小超過限制: {file_size_mb:.1f}MB > {max_size_mb}MB - {uploaded_file.name}")
+            st.error(f"檔案大小超過限制: {file_size_mb:.1f}MB > {max_size_mb}MB")
             return False
         
+        logger.info(f"✅ FileManager: 檔案大小驗證通過 - {uploaded_file.name}")
         return True
     
     def is_image_file(self, filename: str) -> bool:
@@ -43,8 +63,18 @@ class UserFileManager:
     
     def save_uploaded_file(self, uploaded_file) -> Optional[str]:
         """儲存上傳的檔案"""
+        import logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"💾 FileManager: 開始保存文件 - {uploaded_file.name}")
+        logger.info(f"   - 文件大小: {uploaded_file.size:,} bytes ({uploaded_file.size/(1024*1024):.2f} MB)")
+        
         if not self.validate_file(uploaded_file):
+            logger.error(f"❌ FileManager: 文件驗證失敗 - {uploaded_file.name}")
             return None
+        
+        logger.info(f"✅ FileManager: 文件驗證通過 - {uploaded_file.name}")
         
         try:
             # 生成唯一檔案名稱避免衝突
@@ -54,17 +84,40 @@ class UserFileManager:
             unique_filename = f"{base_name}_{timestamp}{extension}"
             
             file_path = os.path.join(self.upload_dir, unique_filename)
+            logger.info(f"📁 FileManager: 目標路徑 - {file_path}")
+            
+            # 確保目錄存在
+            os.makedirs(self.upload_dir, exist_ok=True)
+            logger.info(f"📂 FileManager: 確保目錄存在 - {self.upload_dir}")
             
             # 儲存檔案
+            logger.info(f"💻 FileManager: 開始寫入文件數據 - {uploaded_file.name}")
             with open(file_path, "wb") as f:
-                f.write(uploaded_file.read())
+                data = uploaded_file.read()
+                f.write(data)
+                logger.info(f"   - 實際寫入數據: {len(data):,} bytes")
+            
+            # 驗證文件是否成功寫入
+            if os.path.exists(file_path):
+                actual_size = os.path.getsize(file_path)
+                logger.info(f"✅ FileManager: 文件寫入成功")
+                logger.info(f"   - 磁盤文件大小: {actual_size:,} bytes")
+                logger.info(f"   - 大小匹配: {actual_size == uploaded_file.size}")
+            else:
+                logger.error(f"❌ FileManager: 文件寫入後不存在於磁盤 - {file_path}")
+                return None
             
             # 重置檔案指針
             uploaded_file.seek(0)
+            logger.info(f"🔄 FileManager: 重置文件指針 - {uploaded_file.name}")
             
+            logger.info(f"🎉 FileManager: 文件保存完成 - {file_path}")
             return file_path
             
         except Exception as e:
+            logger.error(f"❌ FileManager: 儲存檔案時發生錯誤: {uploaded_file.name} - {str(e)}")
+            import traceback
+            logger.error(f"   錯誤堆疊: {traceback.format_exc()}")
             st.error(f"儲存檔案時發生錯誤: {str(e)}")
             return None
     

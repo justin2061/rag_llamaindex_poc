@@ -1,0 +1,90 @@
+{
+  "timestamp": "2025-08-21T17:03:05.148553",
+  "test_queries": [
+    "什麼是機器學習？",
+    "如何優化數據庫性能？",
+    "Python 程式設計最佳實踐",
+    "雲端運算的優勢和挑戰",
+    "人工智能在醫療領域的應用"
+  ],
+  "dimension_results": {
+    "128": {
+      "dimension": 128,
+      "actual_dimension": 128,
+      "embedding_time_total": 19.19928741455078,
+      "embedding_time_per_query": 3.839857482910156,
+      "index_creation_time": 1.0554049015045166,
+      "document_indexing_time": 0.26900792121887207,
+      "document_indexing_time_per_doc": 0.05380158424377442,
+      "average_query_time": 0.00490422248840332,
+      "index_size_bytes": 18043,
+      "index_size_kb": 17.6201171875,
+      "queries_tested": 5
+    },
+    "256": {
+      "dimension": 256,
+      "actual_dimension": 256,
+      "embedding_time_total": 23.669495344161987,
+      "embedding_time_per_query": 4.733899068832398,
+      "index_creation_time": 0.9704320430755615,
+      "document_indexing_time": 0.2570459842681885,
+      "document_indexing_time_per_doc": 0.05140919685363769,
+      "average_query_time": 0.005648342768351237,
+      "index_size_bytes": 26303,
+      "index_size_kb": 25.6865234375,
+      "queries_tested": 5
+    },
+    "384": {
+      "dimension": 384,
+      "actual_dimension": 384,
+      "embedding_time_total": 30.47934317588806,
+      "embedding_time_per_query": 6.095868635177612,
+      "index_creation_time": 0.9400360584259033,
+      "document_indexing_time": 0.2626380920410156,
+      "document_indexing_time_per_doc": 0.05252761840820312,
+      "average_query_time": 0.005390628178914387,
+      "index_size_bytes": 34568,
+      "index_size_kb": 33.7578125,
+      "queries_tested": 5
+    },
+    "512": {
+      "dimension": 512,
+      "actual_dimension": 512,
+      "embedding_time_total": 20.671016216278076,
+      "embedding_time_per_query": 4.134203243255615,
+      "index_creation_time": 0.9505970478057861,
+      "document_indexing_time": 0.260648250579834,
+      "document_indexing_time_per_doc": 0.0521296501159668,
+      "average_query_time": 0.004630263646443685,
+      "index_size_bytes": 42385,
+      "index_size_kb": 41.3916015625,
+      "queries_tested": 5
+    },
+    "768": {
+      "dimension": 768,
+      "actual_dimension": 768,
+      "embedding_time_total": 20.29848051071167,
+      "embedding_time_per_query": 4.059696102142334,
+      "index_creation_time": 1.1496071815490723,
+      "document_indexing_time": 0.2766273021697998,
+      "document_indexing_time_per_doc": 0.05532546043395996,
+      "average_query_time": 0.0057923158009847,
+      "index_size_bytes": 58394,
+      "index_size_kb": 57.025390625,
+      "queries_tested": 5
+    },
+    "1024": {
+      "dimension": 1024,
+      "actual_dimension": 1024,
+      "embedding_time_total": 18.259350061416626,
+      "embedding_time_per_query": 3.651870012283325,
+      "index_creation_time": 0.8760888576507568,
+      "document_indexing_time": 0.2581775188446045,
+      "document_indexing_time_per_doc": 0.0516355037689209,
+      "average_query_time": 0.0038867632548014322,
+      "index_size_bytes": 73840,
+      "index_size_kb": 72.109375,
+      "queries_tested": 5
+    }
+  }
+}

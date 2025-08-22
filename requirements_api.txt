@@ -18,6 +18,7 @@ llama-index-vector-stores-elasticsearch>=0.2.0
 
 # 效能監控
 psutil>=5.9.0
+plotly>=5.15.0
 
 # FastAPI API 服務
 fastapi>=0.104.0

@@ -115,6 +115,211 @@ print(f'索引文檔數: {stats[\"total_documents\"]}')
 3. **交互式除錯**: 使用 `docker exec -it` 進入容器進行深度除錯
 4. **環境一致性**: 容器內的 Python 環境與宿主機可能不同，測試結果更準確
 
+## 🛡️ 避免回歸錯誤 (Regression Bug) 最佳實踐
+
+### 什麼是回歸錯誤？
+
+**回歸錯誤**是指在修復一個問題或添加新功能時，意外破壞了原本正常工作的功能。這在複雜系統中很常見，特別是當：
+- 修改共享的配置文件或基礎類別
+- 重構初始化流程或依賴關係
+- 修改多個相互依賴的模塊
+
+### 🔍 預防策略
+
+#### 1. **修改前的安全檢查**
+
+```bash
+# 在開始任何修改前，先確保當前系統正常工作
+docker exec rag-intelligent-assistant python -c "
+import sys; sys.path.append('/app')
+from src.rag_system.elasticsearch_rag_system import ElasticsearchRAGSystem
+rag = ElasticsearchRAGSystem()
+stats = rag.get_document_statistics()
+print(f'✅ 基線測試通過: {stats.get(\"total_documents\", 0)} 個文檔')
+"
+
+# 記錄當前工作狀態
+echo "$(date): 系統基線測試通過" >> modification_log.txt
+```
+
+#### 2. **小步驟增量修改**
+
+**❌ 避免大幅度修改：**
+```bash
+# 不要一次修改多個相關文件
+# 不要同時重構和添加新功能
+```
+
+**✅ 推薦的修改流程：**
+```bash
+# 1. 創建功能分支
+git checkout -b fix/specific-issue
+
+# 2. 修改單一文件或功能
+# 只修改一個特定問題
+
+# 3. 立即測試
+docker exec rag-intelligent-assistant python -c "測試代碼"
+
+# 4. 提交小步驟
+git add . && git commit -m "fix: 具體的修改描述"
+
+# 5. 繼續下一個小修改
+```
+
+#### 3. **關鍵功能回歸測試**
+
+每次修改後都要執行的核心測試：
+
+```bash
+# 完整回歸測試腳本
+docker exec rag-intelligent-assistant python -c "
+import sys
+sys.path.append('/app')
+
+print('🧪 執行回歸測試...')
+
+# 測試 1: 系統初始化
+try:
+    from src.rag_system.elasticsearch_rag_system import ElasticsearchRAGSystem
+    rag = ElasticsearchRAGSystem()
+    print('✅ 系統初始化正常')
+except Exception as e:
+    print(f'❌ 系統初始化失敗: {e}')
+    exit(1)
+
+# 測試 2: 統計功能
+try:
+    stats = rag.get_document_statistics()
+    print(f'✅ 統計功能正常: {stats.get(\"total_documents\", 0)} 個文檔')
+except Exception as e:
+    print(f'❌ 統計功能失敗: {e}')
+    exit(1)
+
+# 測試 3: 必要屬性檢查
+try:
+    assert hasattr(rag, 'memory_stats'), 'memory_stats 屬性缺失'
+    assert hasattr(rag, 'elasticsearch_client'), 'elasticsearch_client 屬性缺失'
+    print('✅ 關鍵屬性檢查通過')
+except Exception as e:
+    print(f'❌ 屬性檢查失敗: {e}')
+    exit(1)
+
+print('🎉 所有回歸測試通過')
+"
+```
+
+#### 4. **容器完全重啟驗證**
+
+```bash
+# 重大修改後的完整驗證流程
+echo "🔄 執行完整系統重啟驗證..."
+
+# 1. 完全停止所有容器
+docker-compose down
+sleep 5
+
+# 2. 清理可能的緩存問題
+docker system prune -f
+docker volume prune -f
+
+# 3. 重新構建和啟動
+docker-compose up --build -d
+
+# 4. 等待系統完全啟動
+echo "⏳ 等待系統啟動..."
+sleep 60
+
+# 5. 驗證系統健康狀態
+docker ps --filter "name=rag" --format "table {{.Names}}\t{{.Status}}"
+
+# 6. 執行完整功能測試
+curl -s http://localhost:8602 > /dev/null && echo "✅ Dashboard 可訪問" || echo "❌ Dashboard 失敗"
+```
+
+#### 5. **修改日誌和回滾準備**
+
+```bash
+# 創建修改日誌
+cat >> modification_log.txt << EOF
+$(date): 開始修改 - ${MODIFICATION_DESCRIPTION}
+分支: $(git branch --show-current)
+提交: $(git rev-parse HEAD)
+修改文件: ${MODIFIED_FILES}
+測試狀態: [待測試]
+EOF
+
+# 如果出現問題，快速回滾
+git stash  # 暫存未提交的修改
+git checkout main  # 回到穩定版本
+docker-compose restart  # 重啟系統
+```
+
+### 🚨 緊急修復流程
+
+當發現回歸錯誤時：
+
+```bash
+# 1. 立即停止修改，評估影響範圍
+echo "⚠️ 發現回歸錯誤，開始緊急修復..."
+
+# 2. 快速回滾到上一個工作狀態
+git log --oneline -5  # 查看最近提交
+git checkout <last-working-commit>
+
+# 3. 完全重啟系統
+docker-compose down && sleep 5 && docker-compose up -d
+
+# 4. 驗證系統恢復
+sleep 60
+docker exec rag-intelligent-assistant python -c "
+import sys; sys.path.append('/app')
+from src.rag_system.elasticsearch_rag_system import ElasticsearchRAGSystem
+rag = ElasticsearchRAGSystem()
+print('✅ 系統已恢復正常')
+"
+
+# 5. 分析問題原因
+git diff <last-working-commit> <problematic-commit>
+```
+
+### 📋 修改檢查清單
+
+每次修改前，Claude Code 應該遵循這個檢查清單：
+
+- [ ] 已執行基線測試，確認當前系統正常
+- [ ] 創建了功能分支，避免直接修改 main
+- [ ] 明確了修改範圍，避免同時修改多個不相關功能
+- [ ] 準備了快速回滾方案
+- [ ] 確認了修改不會影響共享配置或基礎類別
+
+每次修改後：
+
+- [ ] 執行了完整的回歸測試
+- [ ] 驗證了關鍵功能仍然正常工作
+- [ ] 測試了容器重啟後的系統狀態
+- [ ] 更新了修改日誌
+- [ ] 確認沒有引入新的依賴或配置問題
+
+### 🎯 特別注意事項
+
+以下情況需要格外小心，容易引起回歸錯誤：
+
+1. **修改 `__init__` 方法**: 特別是基礎類別的初始化順序
+2. **重構配置文件**: `config/config.py` 的任何修改
+3. **修改共享工具類**: `src/utils/` 下的工具函數
+4. **調整 Docker 配置**: `docker-compose.yml` 或 `Dockerfile`
+5. **修改依賴關係**: `requirements.txt` 的變更
+
+### 🤖 給 Claude Code 的建議
+
+作為 AI 助手，在進行代碼修改時應該：
+
+1. **主動詢問測試**: "我將進行這個修改，您希望我先執行基線測試嗎？"
+2. **分步驟修改**: "我建議分步驟進行這個修改，先修改 A，測試後再修改 B"
+3. **提供回滾方案**: "如果這個修改出現問題，可以用以下命令快速回滾"
+4. **建議完整重啟**: "重大修改完成後，建議執行完整的容器重啟驗證"
+
 ## Architecture Overview
 
 This is an **advanced RAG (Retrieval-Augmented Generation) system** built with **LlamaIndex** and **Streamlit**. The system supports multiple RAG approaches including traditional vector-based retrieval, enhanced RAG with conversation memory, cutting-edge Graph RAG for knowledge graph construction and reasoning, and **production-ready Elasticsearch RAG** for scalable document search and retrieval.

@@ -8,6 +8,7 @@ import uuid
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import streamlit as st
+import traceback
 
 try:
     from elasticsearch import Elasticsearch
@@ -19,10 +20,38 @@ class ConversationHistoryManager:
     """對話記錄管理器"""
     
     def __init__(self, elasticsearch_config: Optional[Dict] = None):
-        self.elasticsearch_config = elasticsearch_config or self._get_default_config()
+        self.elasticsearch_config = self._normalize_config(elasticsearch_config or self._get_default_config())
         self.index_name = "rag_conversation_history"
         self.elasticsearch_client = None
         self._initialize_client()
+    
+    def _normalize_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """將配置標準化為 Elasticsearch 客戶端所需的格式"""
+        # 如果配置已經是正確格式（有 hosts 字段），直接返回
+        if 'hosts' in config:
+            return config
+        
+        # 否則從單獨的 host, port 參數構建 hosts 格式
+        if 'host' in config and 'port' in config:
+            normalized = {
+                'hosts': [{
+                    'host': config['host'],
+                    'port': config['port'],
+                    'scheme': config.get('scheme', 'http')
+                }],
+                'request_timeout': config.get('timeout', 30),
+                'max_retries': config.get('max_retries', 3),
+                'retry_on_timeout': True
+            }
+            
+            # 添加認證信息（如果有）
+            if config.get('username') and config.get('password'):
+                normalized['basic_auth'] = (config['username'], config['password'])
+                
+            return normalized
+        
+        # 如果都沒有，返回默認配置
+        return self._get_default_config()
     
     def _get_default_config(self) -> Dict[str, Any]:
         """獲取默認的 Elasticsearch 配置"""
@@ -53,6 +82,7 @@ class ConversationHistoryManager:
                 
         except Exception as e:
             st.error(f"❌ Elasticsearch 客戶端初始化失敗: {str(e)}")
+            traceback.print_exc()
             return False
     
     def _ensure_index_exists(self):

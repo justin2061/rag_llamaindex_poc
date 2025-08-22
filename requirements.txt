@@ -12,6 +12,7 @@ llama-index-readers-file>=0.1.4
 requests>=2.31.0
 beautifulsoup4>=4.12.2
 PyMuPDF>=1.23.3     # Docker 環境可以處理編譯
+plotly>=5.15.0
 
 # Google Generative AI (Gemini OCR 功能)
 google-generativeai>=0.3.0

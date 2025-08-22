@@ -51,18 +51,6 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         # 系統狀態儲存（用於 Dashboard 顯示）
         self.system_status = {}
         
-        # 使用配置文件中的索引名稱
-        from config.config import ELASTICSEARCH_INDEX_NAME
-        self.index_name = ELASTICSEARCH_INDEX_NAME
-    
-    def _store_system_status(self, key: str, value: Any):
-        """儲存系統狀態信息"""
-        self.system_status[key] = value
-    
-    def get_system_status(self) -> Dict[str, Any]:
-        """獲取系統狀態信息"""
-        return self.system_status.copy()
-        
         # 記憶體使用監控
         self.memory_stats = {
             'documents_processed': 0,
@@ -74,8 +62,12 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         self.embedding_model = None
         self.llm_model = None
         
+        # 使用配置文件中的索引名稱
+        from config.config import ELASTICSEARCH_INDEX_NAME
+        self.index_name = ELASTICSEARCH_INDEX_NAME
+        
         # 初始化對話記錄管理器
-        self.conversation_manager = ConversationHistoryManager(elasticsearch_config)
+        self.conversation_manager = ConversationHistoryManager(self.elasticsearch_config)
         
         # 調用父類初始化，但禁用其 Elasticsearch 自動初始化
         super().__init__(use_elasticsearch=False, use_chroma=False)  # 先設置為 False
@@ -85,6 +77,14 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         if self._initialize_elasticsearch():
             # 如果初始化成功，嘗試載入現有索引
             self.load_existing_index()
+    
+    def _store_system_status(self, key: str, value: Any):
+        """儲存系統狀態信息"""
+        self.system_status[key] = value
+    
+    def get_system_status(self) -> Dict[str, Any]:
+        """獲取系統狀態信息"""
+        return self.system_status.copy()
     
     def _initialize_elasticsearch(self):
         """初始化 Elasticsearch 連接和向量存儲"""

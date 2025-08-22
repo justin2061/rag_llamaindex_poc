@@ -485,7 +485,17 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
     def query(self, query_str: str, **kwargs) -> str:
         """執行查詢並返回結果字符串"""
         if not self.query_engine:
-            return "❌ 查詢引擎尚未設置。請先上傳並索引文檔。"
+            # 嘗試自動重新初始化查詢引擎
+            print("⚠️ 查詢引擎未設置，嘗試自動重新初始化...")
+            if self.index and self._setup_elasticsearch_store():
+                self.setup_query_engine()
+                if self.query_engine:
+                    print("✅ 查詢引擎自動重新初始化成功")
+                else:
+                    print("❌ 查詢引擎自動重新初始化失敗")
+                    return "❌ 查詢引擎初始化失敗。請檢查系統狀態或重新上傳文檔。"
+            else:
+                return "❌ 查詢引擎尚未設置。請先上傳並索引文檔。"
         
         tracker = get_performance_tracker()
         
@@ -526,11 +536,25 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
     def query_with_sources(self, query_str: str, save_to_history: bool = True, session_id: str = None, user_id: str = None, **kwargs) -> Dict[str, Any]:
         """執行查詢並返回帶有來源信息的完整結果"""
         if not self.query_engine:
-            return {
-                "answer": "❌ 查詢引擎尚未設置。請先上傳並索引文檔。",
-                "sources": [],
-                "metadata": {}
-            }
+            # 嘗試自動重新初始化查詢引擎
+            print("⚠️ 查詢引擎未設置，嘗試自動重新初始化...")
+            if self.index and self._setup_elasticsearch_store():
+                self.setup_query_engine()
+                if self.query_engine:
+                    print("✅ 查詢引擎自動重新初始化成功")
+                else:
+                    print("❌ 查詢引擎自動重新初始化失敗")
+                    return {
+                        "answer": "❌ 查詢引擎初始化失敗。請檢查系統狀態或重新上傳文檔。",
+                        "sources": [],
+                        "metadata": {}
+                    }
+            else:
+                return {
+                    "answer": "❌ 查詢引擎尚未設置。請先上傳並索引文檔。",
+                    "sources": [],
+                    "metadata": {}
+                }
         
         tracker = get_performance_tracker()
         start_time = datetime.now()

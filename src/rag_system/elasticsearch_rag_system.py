@@ -35,7 +35,7 @@ from config.config import (
     ELASTICSEARCH_INDEX_NAME, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD,
     ELASTICSEARCH_TIMEOUT, ELASTICSEARCH_MAX_RETRIES, ELASTICSEARCH_VERIFY_CERTS,
     ELASTICSEARCH_SHARDS, ELASTICSEARCH_REPLICAS, ELASTICSEARCH_VECTOR_DIMENSION,
-    ELASTICSEARCH_SIMILARITY
+    ELASTICSEARCH_SIMILARITY, SHOW_TECHNICAL_MESSAGES, DEBUG_MODE
 )
 
 class ElasticsearchRAGSystem(EnhancedRAGSystem):
@@ -48,9 +48,20 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         self.elasticsearch_client = None
         self.elasticsearch_store = None
         
+        # 系統狀態儲存（用於 Dashboard 顯示）
+        self.system_status = {}
+        
         # 使用配置文件中的索引名稱
         from config.config import ELASTICSEARCH_INDEX_NAME
         self.index_name = ELASTICSEARCH_INDEX_NAME
+    
+    def _store_system_status(self, key: str, value: Any):
+        """儲存系統狀態信息"""
+        self.system_status[key] = value
+    
+    def get_system_status(self) -> Dict[str, Any]:
+        """獲取系統狀態信息"""
+        return self.system_status.copy()
         
         # 記憶體使用監控
         self.memory_stats = {
@@ -81,7 +92,9 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             if self._setup_elasticsearch_client():
                 if self._create_elasticsearch_index():
                     if self._setup_elasticsearch_store():
-                        st.success("✅ Elasticsearch RAG 系統初始化完成")
+                        if SHOW_TECHNICAL_MESSAGES:
+                            st.success("✅ Elasticsearch RAG 系統初始化完成")
+                        self._store_system_status('system_initialized', True)
                         # 確保 use_elasticsearch 標誌正確設置
                         self.use_elasticsearch = True
                         return True
@@ -110,7 +123,9 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             self.embedding_model = Settings.embed_model
             self.llm_model = Settings.llm
             
-            st.info("✅ Elasticsearch RAG 系統模型初始化完成")
+            if SHOW_TECHNICAL_MESSAGES:
+                st.info("✅ Elasticsearch RAG 系統模型初始化完成")
+            self._store_system_status('model_initialized', True)
     
     def _get_default_config(self) -> Dict:
         """獲取預設 Elasticsearch 配置"""
@@ -166,20 +181,31 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             
             # 測試連接
             if sync_client.ping():
-                st.success(f"✅ 成功連接到 Elasticsearch: {config['host']}:{config['port']}")
+                # 記錄連接成功信息（僅在技術模式下顯示）
+                if SHOW_TECHNICAL_MESSAGES:
+                    st.success(f"✅ 成功連接到 Elasticsearch: {config['host']}:{config['port']}")
+                    
+                    # 顯示集群信息
+                    try:
+                        cluster_info = sync_client.info()
+                        st.info(f"📊 ES 集群版本: {cluster_info.get('version', {}).get('number', 'unknown')}")
+                    except:
+                        pass
                 
-                # 顯示集群信息
+                # 儲存系統狀態信息供 Dashboard 使用
+                self._store_system_status('elasticsearch_connected', True)
                 try:
                     cluster_info = sync_client.info()
-                    st.info(f"📊 ES 集群版本: {cluster_info.get('version', {}).get('number', 'unknown')}")
+                    self._store_system_status('elasticsearch_version', cluster_info.get('version', {}).get('number', 'unknown'))
                 except:
-                    pass
+                    self._store_system_status('elasticsearch_version', 'unknown')
                 
                 # 統一使用同步客戶端
                 self.elasticsearch_client = sync_client
                 self.sync_elasticsearch_client = sync_client
                 
-                print(f"✅ ES客戶端初始化完成，類型: {type(self.elasticsearch_client)}")
+                if DEBUG_MODE:
+                    print(f"✅ ES客戶端初始化完成，類型: {type(self.elasticsearch_client)}")
                 
                 return True
             else:
@@ -1143,7 +1169,9 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     retriever=retriever,
                     response_mode="compact"
                 )
-                st.success("✅ 使用 ES 混合檢索引擎 (向量搜尋 + 關鍵字搜尋)")
+                if SHOW_TECHNICAL_MESSAGES:
+                    st.success("✅ 使用 ES 混合檢索引擎 (向量搜尋 + 關鍵字搜尋)")
+                self._store_system_status('hybrid_retrieval', True)
             else:
                 # 回退到標準查詢引擎
                 self.query_engine = self.index.as_query_engine(

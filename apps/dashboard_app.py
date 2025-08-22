@@ -16,7 +16,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.rag_system.elasticsearch_rag_system import ElasticsearchRAGSystem
 from src.processors.user_file_manager import UserFileManager
-from config.config import GROQ_API_KEY, GEMINI_API_KEY, PAGE_TITLE, PAGE_ICON, JINA_API_KEY
+from config.config import GROQ_API_KEY, GEMINI_API_KEY, PAGE_TITLE, PAGE_ICON, JINA_API_KEY, SHOW_TECHNICAL_MESSAGES, DEBUG_MODE
 from src.utils.embedding_fix import setup_safe_embedding, prevent_openai_fallback
 
 # 頁面配置
@@ -248,6 +248,25 @@ def render_sidebar():
         
         st.markdown("---")
         
+        # 技術設定
+        st.markdown("### ⚙️ 顯示設定")
+        
+        # 技術訊息顯示開關
+        if 'show_tech_messages' not in st.session_state:
+            st.session_state.show_tech_messages = False
+        
+        tech_messages_toggle = st.checkbox(
+            "顯示技術狀態訊息", 
+            value=st.session_state.show_tech_messages,
+            help="開啟後會在主界面顯示系統初始化和連接狀態的詳細訊息"
+        )
+        
+        if tech_messages_toggle != st.session_state.show_tech_messages:
+            st.session_state.show_tech_messages = tech_messages_toggle
+            st.rerun()
+        
+        st.markdown("---")
+        
         # 快速統計
         if st.session_state.rag_system:
             stats = st.session_state.rag_system.get_document_statistics()
@@ -256,10 +275,73 @@ def render_sidebar():
             st.metric("🧩 文本塊數", stats.get("total_nodes", 0))
             st.metric("💬 對話次數", len(st.session_state.chat_history))
 
+def render_technical_status():
+    """渲染技術狀態信息"""
+    st.markdown("### 🔧 系統技術狀態")
+    
+    # API 狀態
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**API 連接狀態**")
+        if GROQ_API_KEY:
+            st.success("🛡️ 已防止 OpenAI 預設回退")
+            st.success("✅ Groq API 已配置")
+        else:
+            st.error("❌ Groq API 未配置")
+        
+        if GEMINI_API_KEY:
+            st.success("✅ Gemini API 已配置")
+        else:
+            st.warning("⚠️ Gemini API 未配置（OCR 功能不可用）")
+    
+    with col2:
+        st.markdown("**系統初始化狀態**")
+        if st.session_state.rag_system:
+            # 顯示系統狀態
+            if hasattr(st.session_state.rag_system, 'get_system_status'):
+                status = st.session_state.rag_system.get_system_status()
+                
+                if status.get('elasticsearch_connected'):
+                    es_version = status.get('elasticsearch_version', 'unknown')
+                    st.success(f"✅ Elasticsearch 已連接 (v{es_version})")
+                
+                if status.get('system_initialized'):
+                    st.success("✅ Elasticsearch RAG 系統初始化完成")
+                    
+                if status.get('model_initialized'):
+                    st.success("✅ 模型初始化完成")
+                
+                if status.get('hybrid_retrieval'):
+                    st.success("✅ 使用 ES 混合檢索引擎 (向量搜尋 + 關鍵字搜尋)")
+            
+            # Elasticsearch 連接測試
+            try:
+                if hasattr(st.session_state.rag_system, 'elasticsearch_client'):
+                    if st.session_state.rag_system.elasticsearch_client.ping():
+                        st.success("✅ Elasticsearch 連接正常")
+                    else:
+                        st.error("❌ Elasticsearch 連接失敗")
+                else:
+                    st.warning("⚠️ Elasticsearch 客戶端未初始化")
+            except Exception as e:
+                st.error(f"❌ Elasticsearch 連接錯誤: {str(e)}")
+        else:
+            st.error("❌ RAG 系統未初始化")
+
 def render_dashboard():
     """渲染 Dashboard 頁面"""
     st.markdown("# 📊 系統 Dashboard")
     st.markdown("歡迎使用 RAG 智能問答助理系統")
+    
+    # 技術狀態區域（可展開）
+    # 根據用戶設定或配置文件決定是否顯示
+    show_tech = (DEBUG_MODE or SHOW_TECHNICAL_MESSAGES or 
+                st.session_state.get('show_tech_messages', False))
+    
+    if show_tech:
+        with st.expander("🔧 系統技術狀態", expanded=False):
+            render_technical_status()
     
     # 系統概覽
     col1, col2, col3, col4 = st.columns(4)

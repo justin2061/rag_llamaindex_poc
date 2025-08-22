@@ -9,6 +9,10 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # 可選，用於 OCR 功能
 JINA_API_KEY = os.getenv("JINA_API_KEY")      # 可選，用於優化 embedding 效果
 
+# UI/UX 設定
+SHOW_TECHNICAL_MESSAGES = os.getenv("SHOW_TECHNICAL_MESSAGES", "false").lower() == "true"  # 是否顯示技術訊息
+DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"  # 除錯模式
+
 # 模型設定
 LLM_MODEL = "llama-3.3-70b-versatile"  # Groq 模型
 

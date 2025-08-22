@@ -77,6 +77,44 @@ streamlit run tests/rag_system_benchmark.py
 python -c "from tests.rag_system_benchmark import RAGSystemBenchmark; RAGSystemBenchmark().run_full_benchmark()"
 ```
 
+## 容器環境測試指南
+
+在 Docker 部署後測試功能時，請使用：
+
+```bash
+# 在容器內執行測試
+docker exec rag-intelligent-assistant python -c "測試代碼"
+
+# 查看容器日誌
+docker logs rag-intelligent-assistant
+
+# 進入容器交互式測試
+docker exec -it rag-intelligent-assistant bash
+
+# 在容器內執行測試腳本
+docker exec rag-intelligent-assistant python tests/test_elasticsearch_rag.py
+
+# 在容器內運行性能基準測試
+docker exec rag-intelligent-assistant python tests/benchmark_startup.py
+
+# 檢查容器內的系統狀態
+docker exec rag-intelligent-assistant python -c "
+import sys
+sys.path.append('/app')
+from src.rag_system.elasticsearch_rag_system import ElasticsearchRAGSystem
+rag = ElasticsearchRAGSystem()
+stats = rag.get_document_statistics()
+print(f'索引文檔數: {stats[\"total_documents\"]}')
+"
+```
+
+### 容器環境最佳實踐
+
+1. **測試代碼執行**: 始終在容器內執行測試，以確保與部署環境一致
+2. **日誌查看**: 使用 `docker logs` 監控應用程式狀態和錯誤
+3. **交互式除錯**: 使用 `docker exec -it` 進入容器進行深度除錯
+4. **環境一致性**: 容器內的 Python 環境與宿主機可能不同，測試結果更準確
+
 ## Architecture Overview
 
 This is an **advanced RAG (Retrieval-Augmented Generation) system** built with **LlamaIndex** and **Streamlit**. The system supports multiple RAG approaches including traditional vector-based retrieval, enhanced RAG with conversation memory, cutting-edge Graph RAG for knowledge graph construction and reasoning, and **production-ready Elasticsearch RAG** for scalable document search and retrieval.

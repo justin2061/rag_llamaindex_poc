@@ -185,7 +185,9 @@ def prevent_openai_fallback():
         if key in os.environ:
             del os.environ[key]
     
-    st.info("🛡️ 已防止 OpenAI 預設回退")
+    # 在調試模式下記錄，避免在用戶界面顯示技術信息
+    import logging
+    logging.getLogger(__name__).info("已防止 OpenAI 預設回退")
 
 if __name__ == "__main__":
     # 測試嵌入模型

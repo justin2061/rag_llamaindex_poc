@@ -133,7 +133,10 @@ class EnhancedRAGSystem(RAGSystem):
         Settings.embed_model = embed_model
         Settings.node_parser = SimpleNodeParser.from_defaults(chunk_size=1024)
         
-        st.success("🔧 模型初始化完成")
+        # 只在技術模式下顯示訊息
+        from config.config import SHOW_TECHNICAL_MESSAGES
+        if SHOW_TECHNICAL_MESSAGES:
+            st.success("🔧 模型初始化完成")
         
     def _get_embed_dim(self) -> int:
         """嘗試從當前嵌入模型取得維度。找不到則返回 None。"""

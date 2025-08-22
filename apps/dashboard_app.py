@@ -208,6 +208,16 @@ def render_sidebar():
             st.session_state.current_page = "conversation_stats"
             st.rerun()
         
+        # RAG 性能統計按鈕
+        if st.button(
+            "⏱️ RAG 性能統計", 
+            key="nav_performance_stats",
+            use_container_width=True,
+            type="primary" if st.session_state.current_page == "performance_stats" else "secondary"
+        ):
+            st.session_state.current_page = "performance_stats"
+            st.rerun()
+        
         st.markdown("---")
         
         # 系統狀態
@@ -493,6 +503,11 @@ def render_chat():
                 with st.chat_message("assistant"):
                     st.write(chat.get('answer', ''))
                     
+                    # 顯示回答時間
+                    response_time = chat.get('response_time')
+                    if response_time:
+                        st.caption(f"⏱️ 回答時間: {response_time}")
+                    
                     # 顯示來源（如果有）
                     if chat.get('sources'):
                         with st.expander("📚 參考來源"):
@@ -509,6 +524,22 @@ def render_chat():
                                 # 回退到簡單來源列表
                                 for source in chat['sources'][:3]:
                                     st.write(f"• {source}")
+                    
+                    # 顯示詳細性能統計（如果有）
+                    performance = chat.get('performance')
+                    if performance and performance.get('total_stages', 0) > 0:
+                        with st.expander("📊 性能詳情", expanded=False):
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("總時間", f"{performance['total_time']:.3f}s")
+                            with col2:
+                                st.metric("階段數", performance['total_stages'])
+                            with col3:
+                                st.metric("平均時間", f"{performance['average_stage_time']:.3f}s")
+                            
+                            # 各階段詳情
+                            for stage in performance.get('stages', []):
+                                st.caption(f"🔧 {stage['stage']}: {stage['duration']:.3f}s ({stage['percentage']}%)")
         else:
             st.info("💡 開始您的第一個問題吧！")
     
@@ -715,7 +746,16 @@ def generate_stats_report(files: List[Dict]):
 
 def handle_chat_query(question: str):
     """處理聊天查詢"""
+    import time
+    
     try:
+        # 清空之前的性能指標
+        from src.utils.performance_tracker import get_performance_tracker
+        tracker = get_performance_tracker()
+        tracker.clear_session_metrics()
+        
+        start_time = time.time()
+        
         with st.spinner("🤔 思考中..."):
             # 獲取會話ID
             session_id = st.session_state.get('session_id', 'default_session')
@@ -730,14 +770,20 @@ def handle_chat_query(question: str):
                 answer = result['answer']
                 sources = result['sources']
                 conversation_id = result.get('conversation_id')
+                metadata = result.get('metadata', {})
             elif hasattr(st.session_state.rag_system, 'query_with_context'):
                 answer = st.session_state.rag_system.query_with_context(question)
                 sources = []
                 conversation_id = None
+                metadata = {}
             else:
                 answer = st.session_state.rag_system.query(question)
                 sources = []
                 conversation_id = None
+                metadata = {}
+            
+            # 計算總耗時
+            total_time = time.time() - start_time
             
             # 處理來源信息
             source_list = []
@@ -747,6 +793,16 @@ def handle_chat_query(question: str):
             else:
                 source_list = ["向量索引", "用戶文檔"]  # 回退到默認值
             
+            # 格式化時間顯示
+            def format_time(seconds):
+                if seconds < 1:
+                    return f"{seconds*1000:.0f}ms"
+                else:
+                    return f"{seconds:.2f}s"
+            
+            # 獲取詳細性能統計
+            performance_summary = tracker.get_session_summary()
+            
             # 保存到本地聊天歷史（向後兼容）
             chat_record = {
                 'question': question,
@@ -754,11 +810,40 @@ def handle_chat_query(question: str):
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'sources': source_list,
                 'source_details': sources,  # 保存完整的來源詳情
-                'conversation_id': conversation_id  # 保存 ES 中的對話ID
+                'conversation_id': conversation_id,  # 保存 ES 中的對話ID
+                'response_time': format_time(total_time),
+                'response_time_raw': total_time,
+                'performance': performance_summary,
+                'metadata': metadata
             }
             
             st.session_state.chat_history.append(chat_record)
-            st.success("💾 對話已自動保存到 Elasticsearch")
+            
+            # 顯示性能信息
+            st.success(f"💾 對話已自動保存到 Elasticsearch | ⏱️ 回答時間: {format_time(total_time)}")
+            
+            # 顯示詳細性能統計（可選，可展開）
+            if performance_summary.get('total_stages', 0) > 0:
+                with st.expander("📊 詳細性能統計", expanded=False):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("總執行時間", format_time(performance_summary['total_time']))
+                    with col2:
+                        st.metric("執行階段數", performance_summary['total_stages'])
+                    with col3:
+                        st.metric("平均階段時間", format_time(performance_summary['average_stage_time']))
+                    
+                    # 各階段詳情
+                    st.markdown("**各階段耗時詳情:**")
+                    for stage in performance_summary.get('stages', []):
+                        col1, col2, col3 = st.columns([4, 1, 1])
+                        with col1:
+                            st.text(f"🔧 {stage['stage']}")
+                        with col2:
+                            st.text(format_time(stage['duration']))
+                        with col3:
+                            st.text(f"{stage['percentage']}%")
+            
             st.rerun()
             
     except Exception as e:
@@ -875,6 +960,185 @@ def render_conversation_stats():
     
     show_elasticsearch_conversations()
 
+def render_performance_stats():
+    """渲染RAG性能統計頁面"""
+    st.markdown("# ⏱️ RAG 性能統計")
+    st.markdown("系統性能分析和響應時間統計")
+    
+    # 獲取性能追蹤器
+    from src.utils.performance_tracker import get_performance_tracker
+    tracker = get_performance_tracker()
+    
+    # 當前會話性能摘要
+    st.markdown("## 📈 當前會話性能摘要")
+    current_summary = tracker.get_session_summary()
+    
+    if current_summary["total_stages"] > 0:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("總執行時間", tracker.format_duration(current_summary["total_time"]))
+        with col2:
+            st.metric("執行階段數", current_summary["total_stages"])
+        with col3:
+            st.metric("平均階段時間", tracker.format_duration(current_summary["average_stage_time"]))
+        
+        # 階段詳情圖表
+        st.markdown("### 📊 各階段耗時分布")
+        stages_data = current_summary.get("stages", [])
+        
+        if stages_data:
+            import pandas as pd
+            import plotly.express as px
+            
+            # 創建數據框
+            df = pd.DataFrame(stages_data)
+            
+            # 餅圖顯示各階段時間分布
+            fig_pie = px.pie(
+                df, 
+                values='duration', 
+                names='stage',
+                title='各階段時間分布'
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+            # 條形圖顯示各階段詳細時間
+            fig_bar = px.bar(
+                df, 
+                x='stage', 
+                y='duration',
+                title='各階段執行時間詳情',
+                labels={'duration': '時間 (秒)', 'stage': '執行階段'}
+            )
+            fig_bar.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_bar, use_container_width=True)
+        
+        # 詳細階段表格
+        st.markdown("### 📋 詳細階段信息")
+        stages_table_data = []
+        for stage in stages_data:
+            stages_table_data.append({
+                "階段": stage["stage"],
+                "持續時間": tracker.format_duration(stage["duration"]),
+                "佔比": f"{stage['percentage']}%",
+                "開始時間": stage["timestamp"],
+                "額外信息": str(stage.get("info", {}))
+            })
+        
+        if stages_table_data:
+            st.dataframe(stages_table_data, use_container_width=True)
+    else:
+        st.info("📝 當前會話暫無性能數據，請先執行一些查詢操作")
+    
+    # 歷史聊天記錄的性能統計
+    st.markdown("## 📚 歷史查詢性能統計")
+    
+    if st.session_state.chat_history:
+        # 統計歷史查詢時間
+        response_times = []
+        query_data = []
+        
+        for chat in st.session_state.chat_history:
+            if chat.get('response_time_raw'):
+                response_times.append(chat['response_time_raw'])
+                query_data.append({
+                    "問題": chat['question'][:50] + "..." if len(chat['question']) > 50 else chat['question'],
+                    "回答時間": chat.get('response_time', 'N/A'),
+                    "時間戳": chat['timestamp'],
+                    "來源數量": len(chat.get('source_details', []))
+                })
+        
+        if response_times:
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("查詢總數", len(response_times))
+            with col2:
+                avg_time = sum(response_times) / len(response_times)
+                st.metric("平均響應時間", tracker.format_duration(avg_time))
+            with col3:
+                st.metric("最快響應", tracker.format_duration(min(response_times)))
+            with col4:
+                st.metric("最慢響應", tracker.format_duration(max(response_times)))
+            
+            # 響應時間趨勢圖
+            if len(response_times) > 1:
+                st.markdown("### 📈 響應時間趨勢")
+                
+                import pandas as pd
+                import plotly.express as px
+                
+                trend_df = pd.DataFrame({
+                    '查詢序號': range(1, len(response_times) + 1),
+                    '響應時間': response_times
+                })
+                
+                fig_trend = px.line(
+                    trend_df, 
+                    x='查詢序號', 
+                    y='響應時間',
+                    title='查詢響應時間趨勢',
+                    labels={'響應時間': '時間 (秒)', '查詢序號': '查詢序號'}
+                )
+                st.plotly_chart(fig_trend, use_container_width=True)
+            
+            # 查詢歷史表格
+            st.markdown("### 📋 查詢歷史詳情")
+            st.dataframe(query_data, use_container_width=True)
+        else:
+            st.info("📝 暫無查詢性能數據")
+    else:
+        st.info("📝 暫無聊天記錄")
+    
+    # 系統性能建議
+    st.markdown("## 💡 性能優化建議")
+    
+    if current_summary["total_stages"] > 0:
+        stages = current_summary.get("stages", [])
+        
+        # 找出最耗時的階段
+        if stages:
+            slowest_stage = max(stages, key=lambda x: x["duration"])
+            
+            st.markdown("### 🎯 當前性能分析")
+            st.info(f"""
+            **最耗時階段**: {slowest_stage['stage']} ({tracker.format_duration(slowest_stage['duration'])}, {slowest_stage['percentage']}%)
+            
+            **優化建議**:
+            - 如果查詢處理耗時較長，考慮優化檢索策略
+            - 如果嵌入生成耗時較長，考慮使用更快的嵌入模型
+            - 如果索引創建耗時較長，考慮批量處理或增加資源
+            """)
+    
+    # 導出性能數據
+    st.markdown("## 📊 數據導出")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📋 導出性能數據 (JSON)", use_container_width=True):
+            performance_json = tracker.export_metrics('json')
+            st.download_button(
+                "下載 JSON 文件",
+                performance_json,
+                file_name=f"rag_performance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
+            )
+    
+    with col2:
+        if st.button("📊 導出性能數據 (CSV)", use_container_width=True):
+            performance_csv = tracker.export_metrics('csv')
+            st.download_button(
+                "下載 CSV 文件",
+                performance_csv,
+                file_name=f"rag_performance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+    
+    # 清空性能數據按鈕
+    if st.button("🗑️ 清空當前會話性能數據", type="secondary"):
+        tracker.clear_session_metrics()
+        st.success("✅ 已清空當前會話性能數據")
+        st.rerun()
+
 def main():
     """主函數"""
     # 載入樣式
@@ -899,6 +1163,8 @@ def main():
         render_chat()
     elif st.session_state.current_page == "conversation_stats":
         render_conversation_stats()
+    elif st.session_state.current_page == "performance_stats":
+        render_performance_stats()
 
 if __name__ == "__main__":
     main()

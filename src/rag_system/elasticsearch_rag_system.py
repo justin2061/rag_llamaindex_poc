@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from typing import List, Dict, Any, Optional
 import streamlit as st
 from datetime import datetime
@@ -14,6 +15,9 @@ from llama_index.core.postprocessor import SimilarityPostprocessor
 
 # 對話記錄管理
 from src.storage.conversation_history import ConversationHistoryManager
+
+# 性能追蹤
+from src.utils.performance_tracker import get_performance_tracker, track_rag_stage, RAGStages
 
 # Elasticsearch integration
 try:
@@ -457,14 +461,18 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         if not self.query_engine:
             return "❌ 查詢引擎尚未設置。請先上傳並索引文檔。"
         
+        tracker = get_performance_tracker()
+        
         try:
-            print(f"🔍 開始執行查詢: {query_str}")
-            print(f"🔧 查詢引擎類型: {type(self.query_engine)}")
-            
-            response = self.query_engine.query(query_str)
-            
-            print(f"✅ 查詢完成，響應類型: {type(response)}")
-            return str(response)
+            with track_rag_stage(RAGStages.TOTAL_QUERY_TIME, query=query_str):
+                print(f"🔍 開始執行查詢: {query_str}")
+                print(f"🔧 查詢引擎類型: {type(self.query_engine)}")
+                
+                with track_rag_stage(RAGStages.QUERY_PROCESSING):
+                    response = self.query_engine.query(query_str)
+                
+                print(f"✅ 查詢完成，響應類型: {type(response)}")
+                return str(response)
             
         except Exception as e:
             error_msg = str(e)
@@ -498,53 +506,63 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 "metadata": {}
             }
         
+        tracker = get_performance_tracker()
         start_time = datetime.now()
         
         try:
-            print(f"🔍 開始執行帶來源的查詢: {query_str}")
-            print(f"🔧 查詢引擎類型: {type(self.query_engine)}")
-            
-            response = self.query_engine.query(query_str)
-            
-            print(f"✅ 查詢完成，響應類型: {type(response)}")
-            
-            # 提取答案
-            answer = str(response)
-            
-            # 提取來源信息
-            sources = []
-            if hasattr(response, 'source_nodes') and response.source_nodes:
-                print(f"📚 找到 {len(response.source_nodes)} 個來源節點")
-                for i, node in enumerate(response.source_nodes):
-                    source_info = {
-                        "content": node.node.text[:200] + "..." if len(node.node.text) > 200 else node.node.text,
-                        "source": node.node.metadata.get("source", "未知來源"),
-                        "file_path": node.node.metadata.get("file_path", ""),
-                        "score": float(node.score) if hasattr(node, 'score') else 0.0,
-                        "page": node.node.metadata.get("page", ""),
-                        "type": node.node.metadata.get("type", "user_document")
-                    }
-                    sources.append(source_info)
-                    print(f"  [{i+1}] 來源: {source_info['source']}, 評分: {source_info['score']}")
-            else:
-                print("❌ 響應中沒有找到來源節點")
-            
-            # 計算響應時間
-            response_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
-            
-            metadata = {
-                "query": query_str,
-                "total_sources": len(sources),
-                "response_time_ms": response_time_ms,
-                "model": "Groq LLama 3.3",
-                "backend": "Elasticsearch"
-            }
-            
-            result = {
-                "answer": answer,
-                "sources": sources,
-                "metadata": metadata
-            }
+            with track_rag_stage(RAGStages.TOTAL_QUERY_TIME, query=query_str, has_sources=True):
+                print(f"🔍 開始執行帶來源的查詢: {query_str}")
+                print(f"🔧 查詢引擎類型: {type(self.query_engine)}")
+                
+                # 查詢處理階段
+                with track_rag_stage(RAGStages.SIMILARITY_SEARCH):
+                    response = self.query_engine.query(query_str)
+                
+                print(f"✅ 查詢完成，響應類型: {type(response)}")
+                
+                # 上下文檢索階段
+                with track_rag_stage(RAGStages.CONTEXT_RETRIEVAL):
+                    # 提取答案
+                    answer = str(response)
+                    
+                    # 提取來源信息
+                    sources = []
+                    if hasattr(response, 'source_nodes') and response.source_nodes:
+                        print(f"📚 找到 {len(response.source_nodes)} 個來源節點")
+                        for i, node in enumerate(response.source_nodes):
+                            source_info = {
+                                "content": node.node.text[:200] + "..." if len(node.node.text) > 200 else node.node.text,
+                                "source": node.node.metadata.get("source", "未知來源"),
+                                "file_path": node.node.metadata.get("file_path", ""),
+                                "score": float(node.score) if hasattr(node, 'score') else 0.0,
+                                "page": node.node.metadata.get("page", ""),
+                                "type": node.node.metadata.get("type", "user_document")
+                            }
+                            sources.append(source_info)
+                            print(f"  [{i+1}] 來源: {source_info['source']}, 評分: {source_info['score']}")
+                    else:
+                        print("❌ 響應中沒有找到來源節點")
+                
+                # 計算響應時間
+                response_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+                
+                # 獲取性能統計
+                performance_summary = tracker.get_session_summary()
+                
+                metadata = {
+                    "query": query_str,
+                    "total_sources": len(sources),
+                    "response_time_ms": response_time_ms,
+                    "model": "Groq LLama 3.3",
+                    "backend": "Elasticsearch",
+                    "performance": performance_summary
+                }
+                
+                result = {
+                    "answer": answer,
+                    "sources": sources,
+                    "metadata": metadata
+                }
             
             # 保存到對話記錄
             if save_to_history and self.conversation_manager:
@@ -1336,78 +1354,84 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             st.warning("⚠️ 沒有文檔需要索引")
             return None
         
+        tracker = get_performance_tracker()
+        
         with st.spinner("正在使用 Elasticsearch 建立索引..."):
             try:
-                # 確保 ES 連接和模型已初始化
-                if not self.elasticsearch_client:
-                    st.error("❌ Elasticsearch 客戶端未初始化，嘗試重新初始化...")
-                    if not self._setup_elasticsearch_client():
-                        return None
-                
-                if not self.elasticsearch_store:
-                    st.error("❌ Elasticsearch 向量存儲未設置，嘗試重新設置...")
-                    if not self._create_elasticsearch_index():
-                        return None
-                    if not self._setup_elasticsearch_store():
-                        return None
+                with track_rag_stage(RAGStages.TOTAL_INDEXING_TIME, document_count=len(documents)):
+                    # 確保 ES 連接和模型已初始化
+                    if not self.elasticsearch_client:
+                        st.error("❌ Elasticsearch 客戶端未初始化，嘗試重新初始化...")
+                        if not self._setup_elasticsearch_client():
+                            return None
                     
-                self._ensure_models_initialized()
-                
-                # 建立 storage context
-                storage_context = StorageContext.from_defaults(
-                    vector_store=self.elasticsearch_store
-                )
-                
-                st.info(f"📊 準備向量化 {len(documents)} 個文檔到 {self.index_name}")
-                
-                # 檢查文檔內容
-                for i, doc in enumerate(documents[:3]):
-                    content_preview = doc.text[:100] + "..." if len(doc.text) > 100 else doc.text
-                    print(f"📄 文檔 {i+1}: {len(doc.text)} 字符")
-                    print(f"   內容預覽: {content_preview}")
-                    if hasattr(doc, 'metadata') and doc.metadata:
-                        print(f"   元數據: {doc.metadata}")
-                
-                # 創建索引 - 加入詳細日誌
-                print(f"🔧 開始創建VectorStoreIndex，使用ES存儲: {type(self.elasticsearch_store)}")
-                print(f"🔧 ES客戶端類型: {type(self.elasticsearch_client)}")
-                print(f"🔧 嵌入模型類型: {type(self.embedding_model)}")
-                
-                try:
-                    index = VectorStoreIndex.from_documents(
-                        documents, 
-                        storage_context=storage_context,
-                        embed_model=self.embedding_model
-                    )
-                    print("✅ VectorStoreIndex.from_documents 執行成功")
-                except Exception as index_error:
-                    print(f"❌ VectorStoreIndex.from_documents 失敗: {str(index_error)}")
-                    print(f"❌ 錯誤類型: {type(index_error)}")
-                    import traceback
-                    print(f"❌ 完整錯誤堆疊: {traceback.format_exc()}")
-                    
-                    # 如果是 HeadApiResponse 錯誤，嘗試替代方案
-                    if "HeadApiResponse" in str(index_error) or "await" in str(index_error):
-                        print("🔄 檢測到HeadApiResponse錯誤，嘗試重新初始化ES客戶端...")
+                    if not self.elasticsearch_store:
+                        st.error("❌ Elasticsearch 向量存儲未設置，嘗試重新設置...")
+                        if not self._create_elasticsearch_index():
+                            return None
+                        if not self._setup_elasticsearch_store():
+                            return None
                         
-                        # 完全重新創建 ES 客戶端和存儲
-                        if self._recreate_sync_elasticsearch_client():
-                            print("🔄 重新創建storage_context...")
-                            storage_context = StorageContext.from_defaults(
-                                vector_store=self.elasticsearch_store
-                            )
+                    self._ensure_models_initialized()
+                    
+                    # 建立 storage context
+                    with track_rag_stage(RAGStages.TEXT_CHUNKING):
+                        storage_context = StorageContext.from_defaults(
+                            vector_store=self.elasticsearch_store
+                        )
+                    
+                    st.info(f"📊 準備向量化 {len(documents)} 個文檔到 {self.index_name}")
+                    
+                    # 檢查文檔內容
+                    for i, doc in enumerate(documents[:3]):
+                        content_preview = doc.text[:100] + "..." if len(doc.text) > 100 else doc.text
+                        print(f"📄 文檔 {i+1}: {len(doc.text)} 字符")
+                        print(f"   內容預覽: {content_preview}")
+                        if hasattr(doc, 'metadata') and doc.metadata:
+                            print(f"   元數據: {doc.metadata}")
+                
+                    # 創建索引階段
+                    with track_rag_stage(RAGStages.EMBEDDING_GENERATION, vectors_to_create=len(documents)):
+                        print(f"🔧 開始創建VectorStoreIndex，使用ES存儲: {type(self.elasticsearch_store)}")
+                        print(f"🔧 ES客戶端類型: {type(self.elasticsearch_client)}")
+                        print(f"🔧 嵌入模型類型: {type(self.embedding_model)}")
+                        
+                        try:
+                            with track_rag_stage(RAGStages.INDEX_CREATION):
+                                index = VectorStoreIndex.from_documents(
+                                    documents, 
+                                    storage_context=storage_context,
+                                    embed_model=self.embedding_model
+                                )
+                            print("✅ VectorStoreIndex.from_documents 執行成功")
+                        except Exception as index_error:
+                            print(f"❌ VectorStoreIndex.from_documents 失敗: {str(index_error)}")
+                            print(f"❌ 錯誤類型: {type(index_error)}")
+                            import traceback
+                            print(f"❌ 完整錯誤堆疊: {traceback.format_exc()}")
                             
-                            print("🔄 重新嘗試創建索引...")
-                            index = VectorStoreIndex.from_documents(
-                                documents, 
-                                storage_context=storage_context,
-                                embed_model=self.embedding_model
-                            )
-                            print("✅ 使用重新創建的客戶端成功創建索引")
-                        else:
-                            raise index_error
-                    else:
-                        raise index_error
+                            # 如果是 HeadApiResponse 錯誤，嘗試替代方案
+                            if "HeadApiResponse" in str(index_error) or "await" in str(index_error):
+                                print("🔄 檢測到HeadApiResponse錯誤，嘗試重新初始化ES客戶端...")
+                                
+                                # 完全重新創建 ES 客戶端和存儲
+                                if self._recreate_sync_elasticsearch_client():
+                                    print("🔄 重新創建storage_context...")
+                                    storage_context = StorageContext.from_defaults(
+                                        vector_store=self.elasticsearch_store
+                                    )
+                                    
+                                    print("🔄 重新嘗試創建索引...")
+                                    index = VectorStoreIndex.from_documents(
+                                        documents, 
+                                        storage_context=storage_context,
+                                        embed_model=self.embedding_model
+                                    )
+                                    print("✅ 使用重新創建的客戶端成功創建索引")
+                                else:
+                                    raise index_error
+                            else:
+                                raise index_error
                 
                 # 強制刷新並驗證（使用同步客戶端）
                 sync_client = getattr(self, 'sync_elasticsearch_client', None)

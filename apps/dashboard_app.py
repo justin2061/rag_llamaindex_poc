@@ -407,7 +407,7 @@ def render_knowledge_management():
                     total_nodes = sum(file.get('node_count', 0) for file in files)
                     st.metric("🧩 文本塊總數", total_nodes)
                 with col3:
-                    total_size_mb = sum(file.get('size', 0) for file in files) / (1024 * 1024)
+                    total_size_mb = sum(file.get('size', 0) for file in files) / (1024 * 1024) if files else 0
                     st.metric("💾 總大小", f"{total_size_mb:.1f} MB")
                 
                 st.markdown("### 📄 文件列表")
@@ -649,15 +649,24 @@ def handle_bulk_deletion(files: List[Dict]):
     confirm_key = 'confirm_clear_all'
     
     if st.session_state.get(confirm_key, False):
-        success_count = 0
-        for file_info in files:
-            if st.session_state.rag_system.delete_file_from_knowledge_base(file_info['id']):
-                success_count += 1
-        
-        if success_count == len(files):
-            st.success(f"✅ 已清空知識庫，刪除了 {success_count} 個文件")
+        # 使用新的清空知識庫方法
+        if hasattr(st.session_state.rag_system, 'clear_knowledge_base'):
+            success = st.session_state.rag_system.clear_knowledge_base()
+            if success:
+                st.success(f"✅ 已清空知識庫")
+            else:
+                st.error("❌ 清空知識庫失敗")
         else:
-            st.warning(f"⚠️ 部分文件刪除失敗，成功刪除 {success_count}/{len(files)} 個文件")
+            # 回退到逐個刪除
+            success_count = 0
+            for file_info in files:
+                if st.session_state.rag_system.delete_file_from_knowledge_base(file_info['id']):
+                    success_count += 1
+            
+            if success_count == len(files):
+                st.success(f"✅ 已清空知識庫，刪除了 {success_count} 個文件")
+            else:
+                st.warning(f"⚠️ 部分文件刪除失敗，成功刪除 {success_count}/{len(files)} 個文件")
         
         st.session_state[confirm_key] = False
         st.rerun()

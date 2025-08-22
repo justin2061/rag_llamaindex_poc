@@ -782,22 +782,50 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 }
             }
             
-            # 刷除匹配的文檔
+            # 刪除匹配的文檔，添加更多參數以避免衝突
             response = sync_client.delete_by_query(
                 index=self.index_name,
-                body=query
+                body=query,
+                refresh=True,
+                timeout='60s',
+                conflicts='proceed'  # 遇到版本衝突時繼續執行
             )
             
             deleted_count = response.get('deleted', 0)
+            version_conflicts = response.get('version_conflicts', 0)
+            
             if deleted_count > 0:
-                st.success(f"✅ 從 Elasticsearch 中刪除了 {deleted_count} 個文檔塊（來源：{source_filename}）")
+                message = f"✅ 從 Elasticsearch 中刪除了 {deleted_count} 個文檔塊（來源：{source_filename}）"
+                if version_conflicts > 0:
+                    message += f"，有 {version_conflicts} 個版本衝突已忽略"
+                st.success(message)
                 return True
             else:
                 st.info(f"📝 在 Elasticsearch 中沒有找到來源為 '{source_filename}' 的文檔")
                 return False
                 
         except Exception as e:
-            st.error(f"❌ 從 Elasticsearch 刪除文檔失敗: {str(e)}")
+            error_msg = str(e)
+            if '409' in error_msg or 'version_conflicts' in error_msg:
+                st.warning(f"⚠️ 刪除過程中遇到版本衝突，但已嘗試處理: {error_msg}")
+                # 重試一次，使用更寬松的參數
+                try:
+                    response = sync_client.delete_by_query(
+                        index=self.index_name,
+                        body=query,
+                        refresh=True,
+                        timeout='120s',
+                        conflicts='proceed',
+                        wait_for_completion=True
+                    )
+                    deleted_count = response.get('deleted', 0)
+                    if deleted_count > 0:
+                        st.success(f"✅ 重試成功，刪除了 {deleted_count} 個文檔塊")
+                        return True
+                except Exception as retry_e:
+                    st.error(f"❌ 重試刪除失敗: {str(retry_e)}")
+            else:
+                st.error(f"❌ 從 Elasticsearch 刪除文檔失敗: {error_msg}")
             return False
     
     def get_indexed_files_from_es(self) -> List[Dict[str, Any]]:
@@ -856,6 +884,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 timestamp = bucket.get('latest_timestamp', {}).get('value_as_string', '')
                 
                 files.append({
+                    'id': source_file,  # 使用source作為ID，這樣刪除時可以正確識別
                     'name': source_file,
                     'chunk_count': chunk_count,
                     'node_count': chunk_count,  # 添加 node_count 字段兼容性
@@ -863,8 +892,10 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     'size': total_size,  # 為了兼容性保留 size 字段
                     'size_mb': round(total_size / (1024 * 1024), 1) if total_size > 0 else 0,
                     'file_type': file_type,
+                    'type': file_type,  # 添加 type 字段兼容性
                     'timestamp': timestamp,
                     'upload_time': timestamp,  # 添加 upload_time 字段兼容性
+                    'page_count': 0,  # 添加 page_count 字段兼容性
                     'source': 'elasticsearch'
                 })
             
@@ -918,6 +949,99 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             return self.conversation_manager.get_conversation_statistics()
         return {}
     
+    def delete_file_from_knowledge_base(self, file_id: str) -> bool:
+        """從知識庫中刪除文件 (Elasticsearch 版本)
+        
+        Args:
+            file_id: 文件ID，在Elasticsearch版本中這通常是文件名/來源
+            
+        Returns:
+            bool: 刪除是否成功
+        """
+        try:
+            # 在Elasticsearch中，file_id實際上是source名稱
+            return self.delete_documents_by_source(file_id)
+        except Exception as e:
+            st.error(f"❌ 刪除文件失敗: {str(e)}")
+            return False
+    
+    def clear_knowledge_base(self) -> bool:
+        """清空整個知識庫"""
+        sync_client = getattr(self, 'sync_elasticsearch_client', None)
+        if not sync_client:
+            st.error("❌ Elasticsearch 同步客戶端未初始化")
+            return False
+        
+        try:
+            # 刪除索引中所有文檔
+            response = sync_client.delete_by_query(
+                index=self.index_name,
+                body={
+                    "query": {
+                        "match_all": {}
+                    }
+                },
+                refresh=True,
+                timeout='120s',
+                conflicts='proceed',  # 遇到版本衝突時繼續執行
+                wait_for_completion=True
+            )
+            
+            deleted_count = response.get('deleted', 0)
+            version_conflicts = response.get('version_conflicts', 0)
+            
+            message = f"✅ 已清空知識庫，刪除了 {deleted_count} 個文檔"
+            if version_conflicts > 0:
+                message += f"，有 {version_conflicts} 個版本衝突已忽略"
+            
+            st.success(message)
+            return True
+            
+        except Exception as e:
+            error_msg = str(e)
+            if '409' in error_msg or 'version_conflicts' in error_msg:
+                st.warning(f"⚠️ 清空過程中遇到版本衝突，重試中...")
+                # 重試一次，使用分批刪除
+                try:
+                    # 先獲取所有文檔ID
+                    search_response = sync_client.search(
+                        index=self.index_name,
+                        body={
+                            "query": {"match_all": {}},
+                            "_source": False,
+                            "size": 1000
+                        }
+                    )
+                    
+                    doc_ids = [hit['_id'] for hit in search_response['hits']['hits']]
+                    
+                    if doc_ids:
+                        # 批量刪除
+                        actions = [
+                            {"delete": {"_index": self.index_name, "_id": doc_id}}
+                            for doc_id in doc_ids
+                        ]
+                        
+                        from elasticsearch.helpers import bulk
+                        success_count, failed_items = bulk(
+                            sync_client,
+                            actions,
+                            refresh=True,
+                            ignore_status=[404, 409]  # 忽略已刪除和版本衝突
+                        )
+                        
+                        st.success(f"✅ 重試成功，清空了知識庫（刪除 {success_count} 個文檔）")
+                        return True
+                    else:
+                        st.info("📝 知識庫已經為空")
+                        return True
+                        
+                except Exception as retry_e:
+                    st.error(f"❌ 重試清空失敗: {str(retry_e)}")
+            else:
+                st.error(f"❌ 清空知識庫失敗: {error_msg}")
+            return False
+
     def update_conversation_feedback(self, conversation_id: str, rating: int = None, feedback: str = None) -> bool:
         """更新對話反饋"""
         if self.conversation_manager:

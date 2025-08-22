@@ -346,17 +346,43 @@ def render_dashboard():
     # 最近活動
     st.markdown("## 📋 最近活動")
     
+    # 優先顯示本地聊天歷史，如果沒有則從 Elasticsearch 獲取
+    recent_chats = []
+    
+    # 首先檢查本地聊天歷史
     if st.session_state.chat_history:
         recent_chats = st.session_state.chat_history[-5:]  # 顯示最近5條對話
+    
+    # 如果本地沒有，嘗試從 Elasticsearch 獲取
+    elif st.session_state.rag_system and hasattr(st.session_state.rag_system, 'get_conversation_history'):
+        try:
+            es_conversations = st.session_state.rag_system.get_conversation_history(limit=5)
+            if es_conversations:
+                # 轉換 ES 對話格式為本地格式
+                recent_chats = []
+                for conv in es_conversations:
+                    recent_chats.append({
+                        'question': conv.get('question', 'N/A'),
+                        'timestamp': conv.get('timestamp', '未知'),
+                        'answer': conv.get('answer', '')[:50] + '...' if len(conv.get('answer', '')) > 50 else conv.get('answer', '')
+                    })
+        except Exception as e:
+            print(f"⚠️ 獲取 ES 對話記錄失敗: {e}")
+    
+    if recent_chats:
         for i, chat in enumerate(reversed(recent_chats)):
+            question_preview = chat.get('question', 'N/A')
+            if len(question_preview) > 100:
+                question_preview = question_preview[:100] + '...'
+            
             st.markdown(f"""
             <div class="file-item">
-                <strong>Q:</strong> {chat.get('question', 'N/A')[:100]}...
+                <strong>Q:</strong> {question_preview}
                 <br><small style="color: #6b7280;">時間: {chat.get('timestamp', '未知')}</small>
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.info("📝 暫無對話記錄")
+        st.info("📝 暫無對話記錄，開始您的第一個問題吧！")
 
 def render_knowledge_management():
     """渲染知識庫管理頁面"""
@@ -987,31 +1013,43 @@ def render_performance_stats():
         stages_data = current_summary.get("stages", [])
         
         if stages_data:
-            import pandas as pd
-            import plotly.express as px
-            
-            # 創建數據框
-            df = pd.DataFrame(stages_data)
-            
-            # 餅圖顯示各階段時間分布
-            fig_pie = px.pie(
-                df, 
-                values='duration', 
-                names='stage',
-                title='各階段時間分布'
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
-            
-            # 條形圖顯示各階段詳細時間
-            fig_bar = px.bar(
-                df, 
-                x='stage', 
-                y='duration',
-                title='各階段執行時間詳情',
-                labels={'duration': '時間 (秒)', 'stage': '執行階段'}
-            )
-            fig_bar.update_xaxes(tickangle=45)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            try:
+                import pandas as pd
+                import plotly.express as px
+                
+                # 創建數據框
+                df = pd.DataFrame(stages_data)
+                
+                # 餅圖顯示各階段時間分布
+                fig_pie = px.pie(
+                    df, 
+                    values='duration', 
+                    names='stage',
+                    title='各階段時間分布'
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+                
+                # 條形圖顯示各階段詳細時間
+                fig_bar = px.bar(
+                    df, 
+                    x='stage', 
+                    y='duration',
+                    title='各階段執行時間詳情',
+                    labels={'duration': '時間 (秒)', 'stage': '執行階段'}
+                )
+                fig_bar.update_xaxes(tickangle=45)
+                st.plotly_chart(fig_bar, use_container_width=True)
+                
+            except ImportError:
+                # 如果沒有plotly，使用streamlit內建圖表
+                st.info("📊 使用簡化圖表顯示（安裝plotly可獲得更豐富的視覺化）")
+                
+                # 使用streamlit內建的條形圖
+                chart_data = {}
+                for stage in stages_data:
+                    chart_data[stage['stage']] = [stage['duration']]
+                
+                st.bar_chart(chart_data)
         
         # 詳細階段表格
         st.markdown("### 📋 詳細階段信息")
@@ -1064,22 +1102,29 @@ def render_performance_stats():
             if len(response_times) > 1:
                 st.markdown("### 📈 響應時間趨勢")
                 
-                import pandas as pd
-                import plotly.express as px
-                
-                trend_df = pd.DataFrame({
-                    '查詢序號': range(1, len(response_times) + 1),
-                    '響應時間': response_times
-                })
-                
-                fig_trend = px.line(
-                    trend_df, 
-                    x='查詢序號', 
-                    y='響應時間',
-                    title='查詢響應時間趨勢',
-                    labels={'響應時間': '時間 (秒)', '查詢序號': '查詢序號'}
-                )
-                st.plotly_chart(fig_trend, use_container_width=True)
+                try:
+                    import pandas as pd
+                    import plotly.express as px
+                    
+                    trend_df = pd.DataFrame({
+                        '查詢序號': range(1, len(response_times) + 1),
+                        '響應時間': response_times
+                    })
+                    
+                    fig_trend = px.line(
+                        trend_df, 
+                        x='查詢序號', 
+                        y='響應時間',
+                        title='查詢響應時間趨勢',
+                        labels={'響應時間': '時間 (秒)', '查詢序號': '查詢序號'}
+                    )
+                    st.plotly_chart(fig_trend, use_container_width=True)
+                    
+                except ImportError:
+                    # 使用streamlit內建的線圖
+                    st.info("📈 使用簡化趨勢圖（安裝plotly可獲得更豐富的視覺化）")
+                    trend_data = {f"查詢{i+1}": time for i, time in enumerate(response_times)}
+                    st.line_chart(response_times)
             
             # 查詢歷史表格
             st.markdown("### 📋 查詢歷史詳情")
@@ -1155,16 +1200,20 @@ def main():
     render_sidebar()
     
     # 根據當前頁面渲染內容
-    if st.session_state.current_page == "dashboard":
-        render_dashboard()
-    elif st.session_state.current_page == "knowledge":
-        render_knowledge_management()
-    elif st.session_state.current_page == "chat":
-        render_chat()
-    elif st.session_state.current_page == "conversation_stats":
-        render_conversation_stats()
-    elif st.session_state.current_page == "performance_stats":
-        render_performance_stats()
+    try:
+        if st.session_state.current_page == "dashboard":
+            render_dashboard()
+        elif st.session_state.current_page == "knowledge":
+            render_knowledge_management()
+        elif st.session_state.current_page == "chat":
+            render_chat()
+        elif st.session_state.current_page == "conversation_stats":
+            render_conversation_stats()
+        elif st.session_state.current_page == "performance_stats":
+            render_performance_stats()
+    except Exception as e:
+        st.error(f"❌ 頁面渲染錯誤: {str(e)}")
+        st.info("🔄 請刷新頁面或聯繫管理員")
 
 if __name__ == "__main__":
     main()

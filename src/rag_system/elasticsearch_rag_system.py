@@ -1060,6 +1060,44 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 st.error(f"❌ 清空知識庫失敗: {error_msg}")
             return False
 
+    def _get_embed_dim(self) -> int:
+        """覆蓋父類方法，從 Elasticsearch 系統的嵌入模型獲取維度"""
+        try:
+            # 首先嘗試從配置中獲取
+            if hasattr(self, 'elasticsearch_config') and self.elasticsearch_config:
+                dim = self.elasticsearch_config.get('dimension')
+                if dim:
+                    return int(dim)
+            
+            # 然後嘗試從嵌入模型獲取
+            if hasattr(self, 'embedding_model') and self.embedding_model:
+                for attr in ("embed_dim", "_embed_dim", "dimension", "dim"):
+                    if hasattr(self.embedding_model, attr):
+                        val = getattr(self.embedding_model, attr)
+                        try:
+                            return int(val)
+                        except Exception:
+                            continue
+            
+            # 最後從 Settings 獲取
+            model = Settings.embed_model
+            if model:
+                for attr in ("embed_dim", "_embed_dim", "dimension", "dim"):
+                    if hasattr(model, attr):
+                        val = getattr(model, attr)
+                        try:
+                            return int(val)
+                        except Exception:
+                            continue
+            
+            # 從配置文件獲取默認值
+            from config.config import ELASTICSEARCH_VECTOR_DIMENSION
+            return ELASTICSEARCH_VECTOR_DIMENSION
+            
+        except Exception as e:
+            print(f"⚠️ 獲取嵌入維度時發生錯誤: {e}")
+            return None
+
     def update_conversation_feedback(self, conversation_id: str, rating: int = None, feedback: str = None) -> bool:
         """更新對話反饋"""
         if self.conversation_manager:

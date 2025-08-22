@@ -10,7 +10,9 @@
       "Bash(docker cp:*)",
       "Bash(mkdir:*)",
       "Bash(mv:*)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(docker ps:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

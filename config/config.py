@@ -92,12 +92,39 @@ ELASTICSEARCH_VERIFY_CERTS = os.getenv("ELASTICSEARCH_VERIFY_CERTS", "false").lo
 # Elasticsearch 索引設定
 ELASTICSEARCH_SHARDS = int(os.getenv("ELASTICSEARCH_SHARDS", 1))
 ELASTICSEARCH_REPLICAS = int(os.getenv("ELASTICSEARCH_REPLICAS", 0))
-ELASTICSEARCH_VECTOR_DIMENSION = int(os.getenv("ELASTICSEARCH_VECTOR_DIMENSION", 128))  # Jina v3 with dimensions parameter
+ELASTICSEARCH_VECTOR_DIMENSION = int(os.getenv("ELASTICSEARCH_VECTOR_DIMENSION", 512))  # Enhanced dimension for better semantic representation
 ELASTICSEARCH_SIMILARITY = os.getenv("ELASTICSEARCH_SIMILARITY", "cosine")
 
 # 向量存儲優先順序設定
 ENABLE_ELASTICSEARCH = os.getenv("ENABLE_ELASTICSEARCH", "true").lower() == "true"  # 預設啟用
 VECTOR_STORE_PRIORITY = os.getenv("VECTOR_STORE_PRIORITY", "elasticsearch,simple").split(",")  # 優先順序
+
+# Phase 1 優化設定 - 智能切割與結構識別
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1024))  # 基礎切割大小
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 200))  # 重疊字符數
+ENABLE_HIERARCHICAL_CHUNKING = os.getenv("ENABLE_HIERARCHICAL_CHUNKING", "true").lower() == "true"
+ENABLE_DOCUMENT_STRUCTURE_DETECTION = os.getenv("ENABLE_DOCUMENT_STRUCTURE_DETECTION", "true").lower() == "true"
+
+# Phase 2 優化設定 - 混合檢索
+ENABLE_HYBRID_SEARCH = os.getenv("ENABLE_HYBRID_SEARCH", "true").lower() == "true"
+ENABLE_QUERY_REWRITING = os.getenv("ENABLE_QUERY_REWRITING", "true").lower() == "true"
+HYBRID_SEARCH_WEIGHTS = {
+    "vector": float(os.getenv("VECTOR_SEARCH_WEIGHT", 0.6)),
+    "keyword": float(os.getenv("KEYWORD_SEARCH_WEIGHT", 0.3)),
+    "semantic": float(os.getenv("SEMANTIC_SEARCH_WEIGHT", 0.1))
+}
+
+# Phase 3 優化設定 - 多模型策略
+ENABLE_MULTI_EMBEDDING = os.getenv("ENABLE_MULTI_EMBEDDING", "true").lower() == "true"
+ENABLE_CONTEXTUAL_RERANKING = os.getenv("ENABLE_CONTEXTUAL_RERANKING", "true").lower() == "true"
+RERANKING_MODEL = os.getenv("RERANKING_MODEL", "bge-reranker-base")
+
+# 多粒度切割配置
+CHUNK_STRATEGIES = {
+    "short": {"size": 512, "overlap": 100},   # 短文本精確搜索
+    "medium": {"size": 1024, "overlap": 200}, # 中等文本上下文  
+    "long": {"size": 2048, "overlap": 400}    # 長文本整體理解
+}
 
 # RAG 系統選擇
 RAG_SYSTEM_TYPE = os.getenv("RAG_SYSTEM_TYPE", "enhanced").lower()  # enhanced, graph, elasticsearch

@@ -31,7 +31,7 @@ from functools import wraps
 # 添加項目根目錄到 Python 路徑
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.rag_system.elasticsearch_rag_system import ElasticsearchRAGSystem
+from src.rag_system.enhanced_rag_system_v2 import EnhancedRAGSystemV2
 from src.processors.user_file_manager import UserFileManager
 from config.config import GROQ_API_KEY, GEMINI_API_KEY
 
@@ -377,7 +377,7 @@ async def startup_event():
         print("🚀 正在初始化 Enhanced RAG API...")
         
         # 初始化 RAG 系統
-        rag_system = ElasticsearchRAGSystem()
+        rag_system = EnhancedRAGSystemV2()
         if rag_system._initialize_elasticsearch():
             print("✅ Elasticsearch RAG 系統初始化成功")
         else:
@@ -674,12 +674,23 @@ async def chat_with_memory(
         # 構建帶上下文的查詢
         contextual_question = build_conversation_context(context.messages, request.question)
         
-        # 執行 RAG 查詢
-        result = rag_system.query_with_sources(
-            query_str=contextual_question,
-            save_to_history=True,
-            session_id=request.session_id or user_context.session_id,
-            user_id=request.user_id or user_context.user_id
+        # 執行 RAG V2.0 查詢
+        conversation_history = [
+            {"role": msg.role, "content": msg.content} 
+            for msg in context.messages
+        ]
+        
+        user_preferences = {
+            "content_types": ["title", "paragraph"],
+            "topics": [],
+            "preferred_length": "medium"
+        }
+        
+        result = rag_system.query_with_sources_v2(
+            question=contextual_question,
+            conversation_history=conversation_history,
+            user_preferences=user_preferences,
+            max_sources=request.max_sources
         )
         
         # 更新對話上下文
@@ -807,19 +818,11 @@ async def upload_file(
             content = await file.read()
             buffer.write(content)
         
-        # 處理文件
-        documents = rag_system.process_uploaded_files([file])
+        # 使用V2.0處理文件
+        processing_stats = rag_system.process_uploaded_file_v2(file, file_manager)
         
-        if documents:
-            # 創建索引
-            index = rag_system.create_index(documents)
-            if index:
-                rag_system.setup_query_engine()
-                chunks_created = len(documents)
-            else:
-                chunks_created = 0
-        else:
-            chunks_created = 0
+        chunks_created = processing_stats.get("chunks_created", 0)
+        optimization_used = processing_stats.get("optimization_used", [])
         
         # 清理臨時文件
         os.unlink(temp_file_path)

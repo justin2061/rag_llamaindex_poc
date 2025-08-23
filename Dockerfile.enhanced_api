@@ -1,0 +1,39 @@
+# Enhanced RAG API Dockerfile
+FROM python:3.11-slim
+
+# 設置工作目錄
+WORKDIR /app
+
+# 安裝系統依賴
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# 複製需求文件
+COPY requirements.txt .
+COPY api/requirements_api.txt api/
+
+# 安裝 Python 依賴
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r api/requirements_api.txt
+
+# 複製應用程序代碼
+COPY . .
+
+# 設置環境變量
+ENV PYTHONPATH=/app
+ENV API_HOST=0.0.0.0
+ENV API_PORT=8000
+ENV API_RELOAD=false
+
+# 暴露端口
+EXPOSE 8000
+
+# 健康檢查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# 啟動命令
+CMD ["python", "run_enhanced_api.py"]

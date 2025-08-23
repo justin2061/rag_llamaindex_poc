@@ -80,6 +80,47 @@ services:
       elasticsearch:
         condition: service_healthy
 
+  # Enhanced RAG API 服務 (新增)
+  enhanced-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.enhanced_api
+    container_name: rag-enhanced-api
+    ports:
+      - "8003:8000"
+    volumes:
+      - .:/app
+      - ./data:/app/data
+      - ./.env:/app/.env
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - JINA_API_KEY=${JINA_API_KEY}
+      - PYTHONPATH=/app
+      # Elasticsearch 配置
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_SCHEME=http
+      - ELASTICSEARCH_INDEX_NAME=rag_intelligent_assistant
+      - ENABLE_ELASTICSEARCH=true
+      - RAG_SYSTEM_TYPE=elasticsearch
+      # API 配置
+      - API_SECRET_KEY=enhanced-rag-secret-key-production
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - rag-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
   # Elasticsearch 向量資料庫
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0

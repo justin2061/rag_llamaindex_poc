@@ -35,6 +35,9 @@ llama-index-vector-stores-elasticsearch>=0.2.0
 # FastAPI 接口
 fastapi>=0.104.0
 uvicorn>=0.24.0
+python-multipart>=0.0.6
+PyJWT>=2.8.0
+cryptography>=41.0.0
 
 # 效能監控和基準測試
 psutil>=5.9.0

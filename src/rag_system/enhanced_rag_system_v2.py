@@ -593,8 +593,7 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
         從文件載入文檔
         支援多種文件格式：PDF、TXT、DOCX、MD等
         """
-        from llama_index.readers.file import SimpleDirectoryReader
-        from llama_index.core import Document
+        from llama_index.core import Document, SimpleDirectoryReader
         import os
         
         logger.info(f"📁 載入文檔: {file_path}")

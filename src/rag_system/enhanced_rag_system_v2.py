@@ -124,11 +124,15 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
         使用增強的文檔處理和階層索引
         """
         
-        logger.info(f"🔄 V2.0文件處理開始: {uploaded_file.name}")
+        # 獲取文件名和大小（兼容FastAPI和Streamlit）
+        filename = getattr(uploaded_file, 'filename', getattr(uploaded_file, 'name', 'unknown'))
+        file_size = getattr(uploaded_file, 'size', 0)
+        
+        logger.info(f"🔄 V2.0文件處理開始: {filename}")
         
         processing_stats = {
-            "filename": uploaded_file.name,
-            "file_size": uploaded_file.size,
+            "filename": filename,
+            "file_size": file_size,
             "start_time": datetime.now(),
             "chunks_created": 0,
             "optimization_used": [],
@@ -212,7 +216,7 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
             # 記錄處理統計
             self._store_processing_stats(processing_stats)
             
-            logger.info(f"✅ V2.0文件處理完成: {uploaded_file.name}")
+            logger.info(f"✅ V2.0文件處理完成: {filename}")
             logger.info(f"   - 總耗時: {processing_stats['total_duration']:.2f}秒")
             logger.info(f"   - 產生chunks: {processing_stats['chunks_created']}")
             logger.info(f"   - 使用優化: {', '.join(processing_stats['optimization_used'])}")
@@ -583,3 +587,89 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
         logger.info(f"   - 平均查詢時間: {benchmark_results['performance_summary'].get('average_query_time', 0):.3f}秒")
         
         return benchmark_results
+    
+    def _load_documents_from_file(self, file_path: str) -> List:
+        """
+        從文件載入文檔
+        支援多種文件格式：PDF、TXT、DOCX、MD等
+        """
+        from llama_index.readers.file import SimpleDirectoryReader
+        from llama_index.core import Document
+        import os
+        
+        logger.info(f"📁 載入文檔: {file_path}")
+        
+        try:
+            # 檢查文件是否存在
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"文件不存在: {file_path}")
+            
+            # 獲取文件擴展名
+            file_ext = os.path.splitext(file_path)[1].lower()
+            
+            if file_ext == '.txt':
+                # 處理純文本文件
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                document = Document(
+                    text=content,
+                    metadata={
+                        "file_path": file_path,
+                        "file_name": os.path.basename(file_path),
+                        "file_type": "text",
+                        "source": file_path
+                    }
+                )
+                documents = [document]
+                
+            elif file_ext == '.md':
+                # 處理Markdown文件
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                document = Document(
+                    text=content,
+                    metadata={
+                        "file_path": file_path,
+                        "file_name": os.path.basename(file_path),
+                        "file_type": "markdown",
+                        "source": file_path
+                    }
+                )
+                documents = [document]
+                
+            else:
+                # 使用SimpleDirectoryReader處理其他格式
+                reader = SimpleDirectoryReader(
+                    input_files=[file_path],
+                    required_exts=[file_ext]
+                )
+                documents = reader.load_data()
+                
+                # 更新元數據
+                for doc in documents:
+                    if hasattr(doc, 'metadata'):
+                        doc.metadata.update({
+                            "file_path": file_path,
+                            "file_name": os.path.basename(file_path),
+                            "source": file_path
+                        })
+            
+            logger.info(f"✅ 成功載入文檔: {len(documents)} 個文檔")
+            return documents
+            
+        except Exception as e:
+            logger.error(f"❌ 文檔載入失敗: {e}")
+            # 創建一個錯誤文檔
+            error_doc = Document(
+                text=f"文檔載入失敗: {str(e)}",
+                metadata={
+                    "file_path": file_path,
+                    "file_name": os.path.basename(file_path),
+                    "file_type": "error",
+                    "error": str(e),
+                    "source": file_path
+                }
+            )
+            return [error_doc]

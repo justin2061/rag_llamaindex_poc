@@ -17,36 +17,53 @@ class UserFileManager:
         import logging
         logger = logging.getLogger(__name__)
         
-        logger.info(f"🔍 FileManager: 驗證文件 - {uploaded_file.name}")
+        # FastAPI UploadFile 使用 filename 屬性，Streamlit 使用 name 屬性
+        filename = getattr(uploaded_file, 'filename', getattr(uploaded_file, 'name', 'unknown'))
+        logger.info(f"🔍 FileManager: 驗證文件 - {filename}")
         
         # 檢查檔案格式
-        file_ext = os.path.splitext(uploaded_file.name)[1].lower().lstrip('.')
+        file_ext = os.path.splitext(filename)[1].lower().lstrip('.')
         logger.info(f"   - 檔案副檔名: {file_ext}")
         logger.info(f"   - 支援的格式: {self.supported_file_types}")
         
         if file_ext not in self.supported_file_types:
-            logger.error(f"❌ FileManager: 不支援的檔案格式: {file_ext} - {uploaded_file.name}")
-            st.error(f"不支援的檔案格式: {file_ext}")
+            logger.error(f"❌ FileManager: 不支援的檔案格式: {file_ext} - {filename}")
+            if hasattr(st, 'error'):  # 只有在Streamlit環境才調用
+                st.error(f"不支援的檔案格式: {file_ext}")
             return False
         
         logger.info(f"✅ FileManager: 檔案格式驗證通過 - {file_ext}")
         
         # 檢查檔案大小
-        is_image = self.is_image_file(uploaded_file.name)
+        is_image = self.is_image_file(filename)
         max_size = self.max_image_size if is_image else self.max_file_size
         max_size_mb = max_size / (1024 * 1024)
-        file_size_mb = uploaded_file.size / (1024 * 1024)
+        
+        # FastAPI UploadFile 使用不同的大小屬性
+        file_size = getattr(uploaded_file, 'size', 0)
+        if hasattr(uploaded_file, 'file'):
+            # 對於 FastAPI UploadFile，需要通過實際讀取來獲取大小
+            try:
+                current_pos = uploaded_file.file.tell()
+                uploaded_file.file.seek(0, 2)  # 移動到文件末尾
+                file_size = uploaded_file.file.tell()
+                uploaded_file.file.seek(current_pos)  # 恢復原位置
+            except:
+                pass
+                
+        file_size_mb = file_size / (1024 * 1024)
         
         logger.info(f"   - 文件類型: {'圖片' if is_image else '文檔'}")
         logger.info(f"   - 文件大小: {file_size_mb:.2f} MB")
         logger.info(f"   - 大小限制: {max_size_mb:.2f} MB")
         
-        if uploaded_file.size > max_size:
-            logger.error(f"❌ FileManager: 檔案大小超過限制: {file_size_mb:.1f}MB > {max_size_mb}MB - {uploaded_file.name}")
-            st.error(f"檔案大小超過限制: {file_size_mb:.1f}MB > {max_size_mb}MB")
+        if file_size > max_size:
+            logger.error(f"❌ FileManager: 檔案大小超過限制: {file_size_mb:.1f}MB > {max_size_mb}MB - {filename}")
+            if hasattr(st, 'error'):  # 只有在Streamlit環境才調用
+                st.error(f"檔案大小超過限制: {file_size_mb:.1f}MB > {max_size_mb}MB")
             return False
         
-        logger.info(f"✅ FileManager: 檔案大小驗證通過 - {uploaded_file.name}")
+        logger.info(f"✅ FileManager: 檔案大小驗證通過 - {filename}")
         return True
     
     def is_image_file(self, filename: str) -> bool:
@@ -67,20 +84,34 @@ class UserFileManager:
         logging.basicConfig(level=logging.INFO)
         logger = logging.getLogger(__name__)
         
-        logger.info(f"💾 FileManager: 開始保存文件 - {uploaded_file.name}")
-        logger.info(f"   - 文件大小: {uploaded_file.size:,} bytes ({uploaded_file.size/(1024*1024):.2f} MB)")
+        # 獲取文件名
+        filename = getattr(uploaded_file, 'filename', getattr(uploaded_file, 'name', 'unknown'))
+        
+        # 獲取文件大小
+        file_size = getattr(uploaded_file, 'size', 0)
+        if hasattr(uploaded_file, 'file') and file_size == 0:
+            try:
+                current_pos = uploaded_file.file.tell()
+                uploaded_file.file.seek(0, 2)
+                file_size = uploaded_file.file.tell()
+                uploaded_file.file.seek(current_pos)
+            except:
+                pass
+        
+        logger.info(f"💾 FileManager: 開始保存文件 - {filename}")
+        logger.info(f"   - 文件大小: {file_size:,} bytes ({file_size/(1024*1024):.2f} MB)")
         
         if not self.validate_file(uploaded_file):
-            logger.error(f"❌ FileManager: 文件驗證失敗 - {uploaded_file.name}")
+            logger.error(f"❌ FileManager: 文件驗證失敗 - {filename}")
             return None
         
-        logger.info(f"✅ FileManager: 文件驗證通過 - {uploaded_file.name}")
+        logger.info(f"✅ FileManager: 文件驗證通過 - {filename}")
         
         try:
             # 生成唯一檔案名稱避免衝突
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            base_name = os.path.splitext(uploaded_file.name)[0]
-            extension = os.path.splitext(uploaded_file.name)[1]
+            base_name = os.path.splitext(filename)[0]
+            extension = os.path.splitext(filename)[1]
             unique_filename = f"{base_name}_{timestamp}{extension}"
             
             file_path = os.path.join(self.upload_dir, unique_filename)
@@ -91,9 +122,19 @@ class UserFileManager:
             logger.info(f"📂 FileManager: 確保目錄存在 - {self.upload_dir}")
             
             # 儲存檔案
-            logger.info(f"💻 FileManager: 開始寫入文件數據 - {uploaded_file.name}")
+            logger.info(f"💻 FileManager: 開始寫入文件數據 - {filename}")
             with open(file_path, "wb") as f:
-                data = uploaded_file.read()
+                # FastAPI UploadFile 需要不同的讀取方法
+                if hasattr(uploaded_file, 'file'):
+                    # 確保文件指針在開始位置
+                    uploaded_file.file.seek(0)
+                    data = uploaded_file.file.read()
+                elif hasattr(uploaded_file, 'read'):
+                    # Streamlit UploadedFile
+                    data = uploaded_file.read()
+                else:
+                    # 其他情況，嘗試獲取值
+                    data = getattr(uploaded_file, 'getvalue', lambda: b'')()
                 f.write(data)
                 logger.info(f"   - 實際寫入數據: {len(data):,} bytes")
             
@@ -102,23 +143,27 @@ class UserFileManager:
                 actual_size = os.path.getsize(file_path)
                 logger.info(f"✅ FileManager: 文件寫入成功")
                 logger.info(f"   - 磁盤文件大小: {actual_size:,} bytes")
-                logger.info(f"   - 大小匹配: {actual_size == uploaded_file.size}")
+                logger.info(f"   - 大小匹配: {actual_size == file_size}")
             else:
                 logger.error(f"❌ FileManager: 文件寫入後不存在於磁盤 - {file_path}")
                 return None
             
             # 重置檔案指針
-            uploaded_file.seek(0)
-            logger.info(f"🔄 FileManager: 重置文件指針 - {uploaded_file.name}")
+            if hasattr(uploaded_file, 'file'):
+                uploaded_file.file.seek(0)
+            else:
+                uploaded_file.seek(0)
+            logger.info(f"🔄 FileManager: 重置文件指針 - {filename}")
             
             logger.info(f"🎉 FileManager: 文件保存完成 - {file_path}")
             return file_path
             
         except Exception as e:
-            logger.error(f"❌ FileManager: 儲存檔案時發生錯誤: {uploaded_file.name} - {str(e)}")
+            logger.error(f"❌ FileManager: 儲存檔案時發生錯誤: {filename} - {str(e)}")
             import traceback
             logger.error(f"   錯誤堆疊: {traceback.format_exc()}")
-            st.error(f"儲存檔案時發生錯誤: {str(e)}")
+            if hasattr(st, 'error'):
+                st.error(f"儲存檔案時發生錯誤: {str(e)}")
             return None
     
     def get_uploaded_files(self) -> List[Dict]:

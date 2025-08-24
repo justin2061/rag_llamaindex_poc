@@ -13,6 +13,30 @@ from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.postprocessor import SimilarityPostprocessor
 
+# 條件性技術訊息顯示
+def _show_technical_message(func, message, *args, **kwargs):
+    """條件性顯示技術訊息，根據配置決定是否顯示"""
+    try:
+        from config.config import SHOW_TECHNICAL_MESSAGES, DEBUG_MODE
+        show_tech = (DEBUG_MODE or SHOW_TECHNICAL_MESSAGES or 
+                    st.session_state.get('show_tech_messages', False))
+        if show_tech:
+            return func(message, *args, **kwargs)
+        else:
+            # 只記錄到日誌，不顯示在UI上
+            print(f"[TECH] {message}")
+            return None
+    except Exception:
+        # 如果無法獲取配置，預設不顯示
+        print(f"[TECH] {message}")
+        return None
+
+# 便利函數
+def _tech_info(message): return _show_technical_message(st.info, message)
+def _tech_success(message): return _show_technical_message(st.success, message)
+def _tech_warning(message): return _show_technical_message(st.warning, message)
+def _tech_error(message): return _show_technical_message(st.error, message)
+
 # 對話記錄管理
 from src.storage.conversation_history import ConversationHistoryManager
 
@@ -296,7 +320,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     st.info("💡 請手動檢查 mapping 配置")
             
             else:
-                st.info("✅ 現有 mapping 配置已是最新")
+                _tech_info("✅ 現有 mapping 配置已是最新")
             
             return True
             
@@ -336,7 +360,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 if not mapping_loader.validate_mapping(index_mapping):
                     raise ValueError("Mapping 配置驗證失敗")
                 
-                st.info(f"✅ 成功從配置文件加載 Elasticsearch mapping")
+                _tech_info(f"✅ 成功從配置文件加載 Elasticsearch mapping")
                 print(f"📋 Mapping 維度: {config['dimension']}")
                 
             except Exception as mapping_error:
@@ -400,7 +424,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
             is_first_time_startup = not index_exists
             
             if index_exists:
-                st.info(f"📚 索引 '{self.index_name}' 已存在")
+                _tech_info(f"📚 索引 '{self.index_name}' 已存在")
                 # 檢查現有索引的 mapping 是否需要更新
                 self._check_and_update_mapping(sync_client, index_mapping)
                 return True
@@ -665,7 +689,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 metadata_field='metadata'
             )
             
-            st.success("✅ Elasticsearch 向量存儲設置完成 (使用同步客戶端)")
+            _tech_success("✅ Elasticsearch 向量存儲設置完成 (使用同步客戶端)")
             return True
                 
         except Exception as e:

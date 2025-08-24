@@ -170,7 +170,17 @@ def setup_safe_embedding(jina_api_key: str = None):
     # 設置為全域預設
     Settings.embed_model = embedding_model
     
-    st.success("✅ 使用 Jina 嵌入模型（帶本地後備）")
+    # 條件性顯示技術訊息
+    try:
+        from config.config import SHOW_TECHNICAL_MESSAGES, DEBUG_MODE
+        show_tech = (DEBUG_MODE or SHOW_TECHNICAL_MESSAGES or 
+                    st.session_state.get('show_tech_messages', False))
+        if show_tech:
+            st.success("✅ 使用 Jina 嵌入模型（帶本地後備）")
+        else:
+            print("[TECH] ✅ 使用 Jina 嵌入模型（帶本地後備）")
+    except Exception:
+        print("[TECH] ✅ 使用 Jina 嵌入模型（帶本地後備）")
     return embedding_model
 
 def prevent_openai_fallback():

@@ -114,6 +114,10 @@ def load_styles():
 
 def init_system():
     """初始化系統"""
+    # 初始化技術訊息顯示設置 (需要在RAG系統初始化之前設置)
+    if 'show_tech_messages' not in st.session_state:
+        st.session_state.show_tech_messages = False
+    
     # 防止 OpenAI 回退
     if 'openai_prevented' not in st.session_state:
         prevent_openai_fallback()

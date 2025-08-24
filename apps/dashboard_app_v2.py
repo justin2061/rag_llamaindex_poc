@@ -240,7 +240,12 @@ def render_sidebar():
         
         # API狀態檢查按鈕
         if st.button("🔄 檢查API狀態", use_container_width=True):
-            check_api_status()
+            with st.spinner("檢查API狀態中..."):
+                check_api_status()
+            if st.session_state.api_status == "healthy":
+                st.success("✅ API狀態檢查完成")
+            else:
+                st.error("❌ API連接檢查失敗")
             st.rerun()
         
         # 導航選項
@@ -316,23 +321,122 @@ def render_dashboard():
     if "error" not in conv_stats:
         st.markdown("## 📈 對話統計")
         
-        # 這裡可以添加更多統計圖表
-        st.json(conv_stats)  # 臨時顯示
+        # 格式化顯示統計數據
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                label="💬 總對話數",
+                value=conv_stats.get("total_conversations", 0)
+            )
+        
+        with col2:
+            st.metric(
+                label="🔗 唯一會話",
+                value=conv_stats.get("unique_sessions", 0)
+            )
+        
+        with col3:
+            # 計算今日對話數（從 conversations_by_date 數據中）
+            today_convs = 0
+            conversations_by_date = conv_stats.get("conversations_by_date", [])
+            if conversations_by_date:
+                # 取最近的日期數據
+                today_convs = conversations_by_date[0].get("doc_count", 0)
+            
+            st.metric(
+                label="📊 最近對話",
+                value=today_convs
+            )
+        
+        # 詳細統計信息
+        with st.expander("🔍 詳細統計信息"):
+            st.json(conv_stats)
+    else:
+        st.error(f"❌ 獲取對話統計失敗: {conv_stats['error']}")
     
     # 最近對話
     st.markdown("## 💬 最近對話")
     
-    recent_conversations = st.session_state.api_client.get_conversations(page_size=5)
-    
-    if "error" not in recent_conversations:
-        conversations = recent_conversations.get("conversations", [])
+    try:
+        recent_conversations = st.session_state.api_client.get_conversations(page_size=5)
         
-        if conversations:
-            for conv in conversations:
-                with st.expander(f"對話 - {conv.get('timestamp', 'N/A')}"):
-                    st.json(conv)  # 臨時顯示
+        if "error" not in recent_conversations:
+            conversations = recent_conversations.get("conversations", [])
+            
+            if conversations:
+                for i, conv in enumerate(conversations):
+                    # 安全處理時間戳
+                    timestamp = conv.get('created_at', conv.get('timestamp', 'N/A'))
+                    if timestamp != 'N/A' and len(timestamp) > 19:
+                        timestamp = timestamp[:19]
+                    
+                    with st.expander(f"對話 {i+1} - {timestamp}"):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("**👤 用戶ID:**")
+                            st.text(conv.get('user_id', 'N/A'))
+                            
+                            st.markdown("**📅 創建時間:**")
+                            st.text(conv.get('created_at', conv.get('timestamp', 'N/A')))
+                        
+                        with col2:
+                            st.markdown("**🆔 對話ID:**")
+                            st.text(conv.get('conversation_id', 'N/A'))
+                            
+                            st.markdown("**💬 消息數:**")
+                            messages = conv.get('messages', [])
+                            st.text(f"{len(messages)} 條消息")
+                        
+                        # 顯示最後幾條消息
+                        if messages:
+                            st.markdown("**📝 最近消息:**")
+                            for msg_idx, message in enumerate(messages[-2:]):  # 只顯示最後2條
+                                msg_type = "🙋 用戶" if message.get('role') == 'user' else "🤖 助理"
+                                content = message.get('content', '').strip()
+                                if len(content) > 100:
+                                    content = content[:100] + "..."
+                                st.markdown(f"**{msg_type}:** {content}")
+                        
+                        # 完整數據（可選查看）
+                        with st.expander("🔍 完整數據"):
+                            st.json(conv)
+            else:
+                st.info("📝 暫無對話記錄")
+                
+                # 提供一些可能的原因說明
+                st.markdown("**可能的原因:**")
+                st.markdown("- 尚未有用戶進行對話")
+                st.markdown("- API服務剛啟動，對話記錄為空")
+                st.markdown("- 資料庫連接問題")
         else:
-            st.info("📝 暫無對話記錄")
+            # API 返回錯誤
+            st.warning("⚠️ 獲取對話記錄時發生問題")
+            st.error(f"錯誤詳情: {recent_conversations['error']}")
+            
+            # 顯示統計數據作為替代信息
+            if conv_stats and "error" not in conv_stats:
+                st.info("📊 根據統計數據顯示:")
+                st.metric("總對話數", conv_stats.get("total_conversations", 0))
+                
+                # 顯示按日期分佈的對話
+                conversations_by_date = conv_stats.get("conversations_by_date", [])
+                if conversations_by_date:
+                    st.markdown("**📅 最近對話分佈:**")
+                    for date_data in conversations_by_date[:5]:
+                        date_str = date_data.get("key_as_string", "")[:10]  # 只取日期部分
+                        count = date_data.get("doc_count", 0)
+                        st.markdown(f"- {date_str}: {count} 條對話")
+                
+    except Exception as e:
+        st.error(f"❌ 獲取對話記錄時發生未預期錯誤: {str(e)}")
+        
+        # 顯示統計數據作為替代
+        if conv_stats and "error" not in conv_stats:
+            st.info("📊 顯示可用的統計數據:")
+            st.metric("總對話數", conv_stats.get("total_conversations", 0))
+            st.metric("唯一會話數", conv_stats.get("unique_sessions", 0))
 
 def render_chat():
     """渲染智能問答頁面"""
@@ -393,19 +497,19 @@ def render_chat():
     
     # 建議問題（如果沒有聊天歷史）
     if not st.session_state.chat_history:
-        st.markdown("### 💡 建議問題")
+        st.markdown("### 💡 與知識庫內容相關的建議問題")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("🔍 V2.0有哪些新功能？", use_container_width=True):
-                handle_chat_query_v2("Enhanced RAG System V2.0有哪些新功能？")
-            if st.button("📊 系統性能如何？", use_container_width=True):
-                handle_chat_query_v2("系統的性能表現如何？")
+            if st.button("🔍 快速整理內容重點", use_container_width=True):
+                handle_chat_query_v2("快速整理內容重點")
+            if st.button("📊 關鍵字分析", use_container_width=True):
+                handle_chat_query_v2("請分析關鍵字")
         
         with col2:
-            if st.button("🎯 優化功能介紹", use_container_width=True):
-                handle_chat_query_v2("請介紹一下系統的優化功能")
+            if st.button("🎯 有什麼重要信息？", use_container_width=True):
+                handle_chat_query_v2("有什麼重要信息？")
             if st.button("❓ 我可以問什麼問題？", use_container_width=True):
                 handle_chat_query_v2("我可以問什麼問題？")
     

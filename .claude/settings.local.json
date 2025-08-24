@@ -13,7 +13,9 @@
       "Bash(cp:*)",
       "Bash(docker ps:*)",
       "Bash(grep:*)",
-      "Bash(./scripts/regression_test.sh:*)"
+      "Bash(./scripts/regression_test.sh:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)"
     ],
     "deny": []
   }

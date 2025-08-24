@@ -1,47 +1,47 @@
 version: '3.8'
 
 services:
-  # RAG 應用程式
-  rag-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: rag-intelligent-assistant
-    ports:
-      - "8602:8501"
-    volumes:
-      # 掛載整個應用程式代碼 (開發模式)
-      - .:/app
-      - /app/data                  # 排除 data 目錄 (使用容器內版本)
-      - ./data:/app/data           # 重新掛載 data 目錄 (持久化)
-      - ./.env:/app/.env           # 掛載環境變數檔案
-    environment:
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - JINA_API_KEY=${JINA_API_KEY}
-      - PYTHONPATH=/app
-      - STREAMLIT_SERVER_HEADLESS=true
-      - STREAMLIT_SERVER_PORT=8501
-      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-      # Elasticsearch 配置
-      - ELASTICSEARCH_HOST=elasticsearch
-      - ELASTICSEARCH_PORT=9200
-      - ELASTICSEARCH_SCHEME=http
-      - ELASTICSEARCH_INDEX_NAME=rag_intelligent_assistant
-      - ENABLE_ELASTICSEARCH=true
-      - RAG_SYSTEM_TYPE=elasticsearch
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    restart: unless-stopped
-    networks:
-      - rag-network
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
+  # RAG 應用程式 (已停用 - 使用 Dashboard V2.0 代替)
+  # rag-app:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: rag-intelligent-assistant
+  #   ports:
+  #     - "8602:8501"
+  #   volumes:
+  #     # 掛載整個應用程式代碼 (開發模式)
+  #     - .:/app
+  #     - /app/data                  # 排除 data 目錄 (使用容器內版本)
+  #     - ./data:/app/data           # 重新掛載 data 目錄 (持久化)
+  #     - ./.env:/app/.env           # 掛載環境變數檔案
+  #   environment:
+  #     - GROQ_API_KEY=${GROQ_API_KEY}
+  #     - GEMINI_API_KEY=${GEMINI_API_KEY}
+  #     - JINA_API_KEY=${JINA_API_KEY}
+  #     - PYTHONPATH=/app
+  #     - STREAMLIT_SERVER_HEADLESS=true
+  #     - STREAMLIT_SERVER_PORT=8501
+  #     - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+  #     # Elasticsearch 配置
+  #     - ELASTICSEARCH_HOST=elasticsearch
+  #     - ELASTICSEARCH_PORT=9200
+  #     - ELASTICSEARCH_SCHEME=http
+  #     - ELASTICSEARCH_INDEX_NAME=rag_intelligent_assistant
+  #     - ENABLE_ELASTICSEARCH=true
+  #     - RAG_SYSTEM_TYPE=elasticsearch
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 40s
+  #   restart: unless-stopped
+  #   networks:
+  #     - rag-network
+  #   depends_on:
+  #     elasticsearch:
+  #       condition: service_healthy
 
   # FastAPI 智能問答 API 服務
   # api:

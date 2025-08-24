@@ -27,6 +27,7 @@ from pathlib import Path
 import traceback
 import jwt
 from functools import wraps
+from urllib.parse import unquote
 
 # 添加項目根目錄到 Python 路徑
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -916,7 +917,9 @@ async def delete_knowledge_base_file(
         )
     
     try:
-        success = rag_system.delete_file_from_knowledge_base(file_id)
+        # URL 解碼文件 ID
+        decoded_file_id = unquote(file_id)
+        success = rag_system.delete_file_from_knowledge_base(decoded_file_id)
         
         if success:
             return {"message": f"File {file_id} deleted successfully"}
@@ -958,7 +961,6 @@ async def get_conversation_history(
             user_id = user_context.user_id
         
         conversations = rag_system.get_conversation_history(
-            user_id=user_id,
             session_id=session_id,
             limit=page_size
         )

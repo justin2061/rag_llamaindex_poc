@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import tempfile
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 # 配置logging
 logging.basicConfig(level=logging.INFO)
@@ -214,8 +215,10 @@ class EnhancedAPIClient:
         self._ensure_authenticated()
         
         try:
+            # URL 編碼文件 ID 以處理路徑分隔符
+            encoded_file_id = quote(file_id, safe='')
             response = self.session.delete(
-                f"{self.base_url}/knowledge-base/files/{file_id}",
+                f"{self.base_url}/knowledge-base/files/{encoded_file_id}",
                 timeout=10
             )
             

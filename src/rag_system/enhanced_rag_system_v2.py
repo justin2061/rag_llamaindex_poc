@@ -644,16 +644,58 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
                     input_files=[file_path],
                     required_exts=[file_ext]
                 )
-                documents = reader.load_data()
+                raw_documents = reader.load_data()
                 
-                # 更新元數據
-                for doc in documents:
-                    if hasattr(doc, 'metadata'):
-                        doc.metadata.update({
+                # 對於PDF等多頁面文檔，合併頁面內容
+                if file_ext == '.pdf' and len(raw_documents) > 1:
+                    logger.info(f"📄 PDF包含 {len(raw_documents)} 頁，進行頁面合併...")
+                    
+                    # 合併所有頁面的文本
+                    combined_text = ""
+                    page_contents = []
+                    
+                    for i, doc in enumerate(raw_documents):
+                        page_num = i + 1
+                        page_text = doc.text.strip()
+                        
+                        # 跳過空頁面
+                        if not page_text:
+                            continue
+                            
+                        # 添加頁面分隔符
+                        page_contents.append(f"\n--- 第{page_num}頁 ---\n{page_text}")
+                    
+                    combined_text = "\n".join(page_contents)
+                    
+                    # 創建合併後的文檔
+                    combined_doc = Document(
+                        text=combined_text,
+                        metadata={
                             "file_path": file_path,
                             "file_name": os.path.basename(file_path),
-                            "source": file_path
-                        })
+                            "file_type": "pdf",
+                            "source": file_path,
+                            "total_pages": len(raw_documents),
+                            "content_length": len(combined_text),
+                            "processing_method": "page_merged"
+                        }
+                    )
+                    
+                    documents = [combined_doc]
+                    logger.info(f"✅ PDF頁面合併完成，總文本長度: {len(combined_text)} 字符")
+                    
+                else:
+                    # 對於單頁文檔或非PDF，保持原樣
+                    documents = raw_documents
+                    
+                    # 更新元數據
+                    for doc in documents:
+                        if hasattr(doc, 'metadata'):
+                            doc.metadata.update({
+                                "file_path": file_path,
+                                "file_name": os.path.basename(file_path),
+                                "source": file_path
+                            })
             
             logger.info(f"✅ 成功載入文檔: {len(documents)} 個文檔")
             return documents

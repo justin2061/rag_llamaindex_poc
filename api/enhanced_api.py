@@ -894,7 +894,7 @@ async def get_knowledge_base_status(
             detail=f"Failed to get knowledge base status: {str(e)}"
         )
 
-@app.delete("/knowledge-base/files/{file_id}", 
+@app.delete("/knowledge-base/files/{file_id:path}", 
             summary="刪除知識庫文件",
             description="從知識庫中永久刪除指定的文件",
             tags=["知識庫管理"])

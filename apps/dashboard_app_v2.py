@@ -665,8 +665,21 @@ def render_knowledge_management():
         # 批量操作
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🗑️ 清空知識庫", use_container_width=True):
-                clear_knowledge_base_v2()
+            # 檢查是否處於清空確認模式
+            if st.session_state.get("confirm_clear_kb", False):
+                sub_col1, sub_col2 = st.columns(2)
+                with sub_col1:
+                    if st.button("取消", key="cancel_clear_kb", use_container_width=True):
+                        st.session_state["confirm_clear_kb"] = False
+                        st.rerun()
+                with sub_col2:
+                    if st.button("確認清空", key="confirm_clear_kb", type="primary", use_container_width=True):
+                        execute_clear_knowledge_base()
+            else:
+                if st.button("🗑️ 清空知識庫", use_container_width=True):
+                    st.session_state["confirm_clear_kb"] = True
+                    st.rerun()
+                    
         with col2:
             if st.button("📊 生成統計報告", use_container_width=True):
                 generate_stats_report_v2(files)
@@ -690,8 +703,22 @@ def render_knowledge_management():
                     st.write(f"🔗 ID: {file_info.get('id', 'N/A')[:8]}...")
                 
                 with col4:
-                    if st.button(f"🗑️", key=f"delete_{i}", help="刪除文件"):
-                        delete_file_v2(file_info, i)
+                    delete_key = f"delete_file_{file_info.get('id', i)}"
+                    
+                    # 檢查是否處於確認模式
+                    if st.session_state.get(f"{delete_key}_confirm", False):
+                        col_cancel, col_confirm = st.columns(2)
+                        with col_cancel:
+                            if st.button("取消", key=f"cancel_{i}", use_container_width=True):
+                                st.session_state[f"{delete_key}_confirm"] = False
+                                st.rerun()
+                        with col_confirm:
+                            if st.button("確認刪除", key=f"confirm_{i}", type="primary", use_container_width=True):
+                                execute_file_deletion(file_info, delete_key)
+                    else:
+                        if st.button("🗑️", key=f"delete_{i}", help="刪除文件", use_container_width=True):
+                            st.session_state[f"{delete_key}_confirm"] = True
+                            st.rerun()
 
 def process_uploaded_files_v2(uploaded_files):
     """V2.0處理上傳文件"""
@@ -724,6 +751,54 @@ def process_uploaded_files_v2(uploaded_files):
     except Exception as e:
         st.error(f"❌ 批量處理失敗: {str(e)}")
 
+def execute_clear_knowledge_base():
+    """執行清空知識庫操作"""
+    try:
+        with st.spinner("正在清空知識庫..."):
+            success = st.session_state.api_client.clear_knowledge_base()
+            
+        if success:
+            st.success("✅ 知識庫已成功清空")
+            st.balloons()  # 添加慶祝動畫
+            # 清除確認狀態
+            st.session_state["confirm_clear_kb"] = False
+            # 延遲後重新載入頁面
+            time.sleep(2)
+            st.rerun()
+        else:
+            st.error("❌ 清空知識庫失敗")
+            st.session_state["confirm_clear_kb"] = False
+            
+    except Exception as e:
+        st.error(f"❌ 清空知識庫時發生錯誤: {str(e)}")
+        st.session_state["confirm_clear_kb"] = False
+
+def execute_file_deletion(file_info: Dict, delete_key: str):
+    """執行文件刪除操作"""
+    file_id = file_info.get('id')
+    if not file_id:
+        st.error("❌ 無效的文件ID")
+        return
+    
+    try:
+        with st.spinner(f"正在刪除 {file_info.get('name', '文件')}..."):
+            success = st.session_state.api_client.delete_file_from_knowledge_base(file_id)
+            
+        if success:
+            st.success(f"✅ 已成功刪除 {file_info.get('name', '文件')}")
+            # 清除確認狀態
+            st.session_state[f"{delete_key}_confirm"] = False
+            # 延遲後重新載入頁面
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error(f"❌ 刪除 {file_info.get('name', '文件')} 失敗")
+            st.session_state[f"{delete_key}_confirm"] = False
+            
+    except Exception as e:
+        st.error(f"❌ 刪除文件時發生錯誤: {str(e)}")
+        st.session_state[f"{delete_key}_confirm"] = False
+
 def delete_file_v2(file_info: Dict, index: int):
     """V2.0刪除文件"""
     confirm_key = f'confirm_delete_v2_{index}'
@@ -731,12 +806,20 @@ def delete_file_v2(file_info: Dict, index: int):
     if st.session_state.get(confirm_key, False):
         # 執行刪除
         file_id = file_info.get('id')
-        if file_id and st.session_state.api_client.delete_file_from_knowledge_base(file_id):
-            st.success(f"✅ 已刪除 {file_info['name']}")
-            st.rerun()
-        else:
-            st.error(f"❌ 刪除 {file_info['name']} 失敗")
-        st.session_state[confirm_key] = False
+        try:
+            if file_id and st.session_state.api_client.delete_file_from_knowledge_base(file_id):
+                st.success(f"✅ 已刪除 {file_info['name']}")
+                # 清除確認狀態
+                st.session_state[confirm_key] = False
+                # 延遲一秒後重新載入
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error(f"❌ 刪除 {file_info['name']} 失敗")
+                st.session_state[confirm_key] = False
+        except Exception as e:
+            st.error(f"❌ 刪除 {file_info['name']} 時發生錯誤: {str(e)}")
+            st.session_state[confirm_key] = False
     else:
         # 請求確認
         st.session_state[confirm_key] = True
@@ -748,12 +831,21 @@ def clear_knowledge_base_v2():
     confirm_key = 'confirm_clear_all_v2'
     
     if st.session_state.get(confirm_key, False):
-        if st.session_state.api_client.clear_knowledge_base():
-            st.success("✅ 知識庫已清空")
-        else:
-            st.error("❌ 清空知識庫失敗")
-        st.session_state[confirm_key] = False
-        st.rerun()
+        try:
+            with st.spinner("正在清空知識庫..."):
+                if st.session_state.api_client.clear_knowledge_base():
+                    st.success("✅ 知識庫已清空")
+                    # 清除確認狀態
+                    st.session_state[confirm_key] = False
+                    # 延遲一秒後重新載入
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ 清空知識庫失敗")
+                    st.session_state[confirm_key] = False
+        except Exception as e:
+            st.error(f"❌ 清空知識庫時發生錯誤: {str(e)}")
+            st.session_state[confirm_key] = False
     else:
         st.session_state[confirm_key] = True
         st.warning("⚠️ 確定要清空整個知識庫嗎？這將刪除所有文件！再次點擊確認。")

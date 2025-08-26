@@ -20,9 +20,9 @@ except ImportError:
 class SimpleLocalEmbedding(BaseEmbedding):
     """簡單的本地嵌入模型 - 不依賴任何外部 API"""
     
-    def __init__(self):
-        super().__init__()
-        self.embed_dim = 384  # 小維度，快速
+    def __init__(self, embed_dim: int = 384):
+        super().__init__(embed_dim=embed_dim)
+        self._embed_dim = embed_dim
     
     def _get_text_embedding(self, text: str) -> List[float]:
         """使用簡單的字符哈希生成嵌入向量"""
@@ -36,14 +36,14 @@ class SimpleLocalEmbedding(BaseEmbedding):
         embeddings = []
         
         # 使用多種哈希算法
-        for i in range(self.embed_dim // 32):  # 每個哈希生成32個值
+        for i in range(self._embed_dim // 32):  # 每個哈希生成32個值
             seed_text = f"{text}_{i}"
             hash_obj = hashlib.md5(seed_text.encode())
             hash_bytes = hash_obj.digest()
             
             # 將字節轉換為浮點數
             for j in range(0, len(hash_bytes), 4):
-                if len(embeddings) >= self.embed_dim:
+                if len(embeddings) >= self._embed_dim:
                     break
                 # 取4個字節組成一個整數，然後歸一化
                 chunk = hash_bytes[j:j+4]
@@ -53,10 +53,10 @@ class SimpleLocalEmbedding(BaseEmbedding):
                     embeddings.append(normalized)
         
         # 確保維度正確
-        while len(embeddings) < self.embed_dim:
+        while len(embeddings) < self._embed_dim:
             embeddings.append(0.0)
         
-        return embeddings[:self.embed_dim]
+        return embeddings[:self._embed_dim]
     
     def _get_query_embedding(self, query: str) -> List[float]:
         """獲取查詢嵌入向量"""

@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Backgroun
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union
 import sys
@@ -1000,20 +1000,30 @@ async def delete_knowledge_base_file(
     try:
         # URL 解碼文件 ID
         decoded_file_id = unquote(file_id)
+        api_logger.info(f"🗑️ 嘗試刪除文件: {decoded_file_id}")
+        
         success = rag_system.delete_file_from_knowledge_base(decoded_file_id)
         
         if success:
+            api_logger.info(f"✅ 文件刪除成功: {decoded_file_id}")
             return {"message": f"File {file_id} deleted successfully"}
         else:
+            api_logger.warning(f"❌ 文件未找到或刪除失敗: {decoded_file_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"File {file_id} not found or deletion failed"
+                detail=f"File '{file_id}' not found in knowledge base. The file may have been already deleted or never existed."
             )
             
+    except HTTPException as http_exc:
+        raise http_exc
     except Exception as e:
+        # Log the actual error for debugging
+        api_logger.error(f"💥 文件刪除異常 - 文件ID: {file_id}, 錯誤: {str(e)}")
+        api_logger.error(f"   - 原始文件ID: {file_id}")
+        api_logger.error(f"   - 解碼後ID: {unquote(file_id) if file_id else 'None'}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"File deletion failed: {str(e)}"
+            detail=f"File deletion failed due to internal error. Please check server logs."
         )
 
 @app.get("/conversations", 
@@ -1094,22 +1104,28 @@ async def get_conversation_stats(
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """HTTP 異常處理器"""
-    return {
-        "error": exc.detail,
-        "status_code": exc.status_code,
-        "timestamp": datetime.now().isoformat(),
-        "request_id": generate_request_id()
-    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code,
+            "timestamp": datetime.now().isoformat(),
+            "request_id": generate_request_id()
+        }
+    )
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     """通用異常處理器"""
-    return {
-        "error": "Internal server error",
-        "detail": str(exc),
-        "timestamp": datetime.now().isoformat(),
-        "request_id": generate_request_id()
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "detail": str(exc),
+            "timestamp": datetime.now().isoformat(),
+            "request_id": generate_request_id()
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn

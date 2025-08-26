@@ -863,18 +863,46 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
         """根據來源文件名刪除文檔"""
         sync_client = getattr(self, 'sync_elasticsearch_client', None)
         if not sync_client:
-            st.error("❌ Elasticsearch 同步客戶端未初始化")
+            print("❌ Elasticsearch 同步客戶端未初始化")
             return False
         
         try:
-            # 構建查詢以查找指定來源的文檔
-            query = {
-                "query": {
-                    "term": {
-                        "metadata.source.keyword": source_filename
-                    }
-                }
-            }
+            # 首先檢查文檔是否存在，使用多種查詢方式
+            search_queries = [
+                # 嘗試1: 使用 metadata.source (exact match)
+                {"term": {"metadata.source": source_filename}},
+                # 嘗試2: 使用 metadata.source.keyword (如果mapping支持)
+                {"term": {"metadata.source.keyword": source_filename}},
+                # 嘗試3: 使用 match query
+                {"match": {"metadata.source": source_filename}}
+            ]
+            
+            found_docs = 0
+            successful_query = None
+            
+            # 測試每種查詢方式找到正確的字段映射
+            for i, test_query in enumerate(search_queries):
+                try:
+                    search_response = sync_client.search(
+                        index=self.index_name,
+                        body={"query": test_query, "size": 0}
+                    )
+                    doc_count = search_response['hits']['total']['value']
+                    if doc_count > 0:
+                        found_docs = doc_count
+                        successful_query = test_query
+                        print(f"✅ 找到 {doc_count} 個文檔，使用查詢方式 {i+1}")
+                        break
+                except Exception as query_error:
+                    print(f"⚠️ 查詢方式 {i+1} 失敗: {query_error}")
+                    continue
+            
+            if not successful_query:
+                print(f"📝 在 Elasticsearch 中沒有找到來源為 '{source_filename}' 的文檔")
+                return False
+            
+            # 使用成功的查詢進行刪除
+            query = {"query": successful_query}
             
             # 刪除匹配的文檔，添加更多參數以避免衝突
             response = sync_client.delete_by_query(
@@ -892,21 +920,28 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 message = f"✅ 從 Elasticsearch 中刪除了 {deleted_count} 個文檔塊（來源：{source_filename}）"
                 if version_conflicts > 0:
                     message += f"，有 {version_conflicts} 個版本衝突已忽略"
-                st.success(message)
+                print(message)
                 return True
             else:
-                st.info(f"📝 在 Elasticsearch 中沒有找到來源為 '{source_filename}' 的文檔")
+                print(f"📝 删除操作完成，但未找到匹配的文檔（來源：{source_filename}）")
                 return False
                 
         except Exception as e:
             error_msg = str(e)
+            print(f"❌ 刪除文檔時發生錯誤: {error_msg}")
+            
             if '409' in error_msg or 'version_conflicts' in error_msg:
-                st.warning(f"⚠️ 刪除過程中遇到版本衝突，但已嘗試處理: {error_msg}")
+                print(f"⚠️ 刪除過程中遇到版本衝突，但已嘗試處理: {error_msg}")
                 # 重試一次，使用更寬松的參數
                 try:
+                    # 重新確定查詢 - 如果之前的查詢已確定，使用它
+                    retry_query = query if 'query' in locals() else {
+                        "query": {"term": {"metadata.source": source_filename}}
+                    }
+                    
                     response = sync_client.delete_by_query(
                         index=self.index_name,
-                        body=query,
+                        body=retry_query,
                         refresh=True,
                         timeout='120s',
                         conflicts='proceed',
@@ -914,12 +949,12 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                     )
                     deleted_count = response.get('deleted', 0)
                     if deleted_count > 0:
-                        st.success(f"✅ 重試成功，刪除了 {deleted_count} 個文檔塊")
+                        print(f"✅ 重試成功，刪除了 {deleted_count} 個文檔塊")
                         return True
                 except Exception as retry_e:
-                    st.error(f"❌ 重試刪除失敗: {str(retry_e)}")
+                    print(f"❌ 重試刪除失敗: {str(retry_e)}")
             else:
-                st.error(f"❌ 從 Elasticsearch 刪除文檔失敗: {error_msg}")
+                print(f"❌ 從 Elasticsearch 刪除文檔失敗: {error_msg}")
             return False
     
     def get_indexed_files_from_es(self) -> List[Dict[str, Any]]:

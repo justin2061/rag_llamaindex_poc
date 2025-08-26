@@ -833,8 +833,63 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
                         }
                     )
                     
-                    documents = [combined_doc]
-                    logger.info(f"✅ PDF頁面合併完成，總文本長度: {len(combined_text)} 字符")
+                    # 檢查文本長度，如果太大則進行智能分塊
+                    MAX_CHUNK_SIZE = 50000  # 5萬字符上限
+                    if len(combined_text) > MAX_CHUNK_SIZE:
+                        logger.info(f"📚 文檔過大 ({len(combined_text)} 字符)，進行智能分塊...")
+                        
+                        # 按頁面分組進行分塊
+                        chunks = []
+                        current_chunk = ""
+                        chunk_count = 0
+                        
+                        for page_content in page_contents:
+                            # 如果加入這頁會超出限制，先保存當前塊
+                            if len(current_chunk) + len(page_content) > MAX_CHUNK_SIZE and current_chunk:
+                                chunk_count += 1
+                                chunk_doc = Document(
+                                    text=current_chunk,
+                                    metadata={
+                                        "file_path": file_path,
+                                        "file_name": os.path.basename(file_path),
+                                        "file_type": "pdf",
+                                        "source": file_path,
+                                        "chunk_id": chunk_count,
+                                        "total_chunks": "will_be_updated",
+                                        "processing_method": "intelligent_chunked"
+                                    }
+                                )
+                                chunks.append(chunk_doc)
+                                current_chunk = page_content
+                            else:
+                                current_chunk += page_content
+                        
+                        # 處理最後一個塊
+                        if current_chunk:
+                            chunk_count += 1
+                            chunk_doc = Document(
+                                text=current_chunk,
+                                metadata={
+                                    "file_path": file_path,
+                                    "file_name": os.path.basename(file_path),
+                                    "file_type": "pdf",
+                                    "source": file_path,
+                                    "chunk_id": chunk_count,
+                                    "total_chunks": chunk_count,
+                                    "processing_method": "intelligent_chunked"
+                                }
+                            )
+                            chunks.append(chunk_doc)
+                        
+                        # 更新所有塊的 total_chunks
+                        for chunk in chunks:
+                            chunk.metadata["total_chunks"] = chunk_count
+                        
+                        documents = chunks
+                        logger.info(f"✅ 智能分塊完成: {len(documents)} 個塊，平均大小: {len(combined_text)//len(documents)} 字符")
+                    else:
+                        documents = [combined_doc]
+                        logger.info(f"✅ PDF頁面合併完成，總文本長度: {len(combined_text)} 字符")
                     
                 else:
                     # 對於單頁文檔或非PDF，保持原樣

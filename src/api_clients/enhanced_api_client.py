@@ -78,7 +78,7 @@ class EnhancedAPIClient:
     def health_check(self) -> Dict[str, Any]:
         """健康檢查"""
         try:
-            response = self.session.get(f"{self.base_url}/health", timeout=5)
+            response = self.session.get(f"{self.base_url}/health", timeout=60)
             if response.status_code == 200:
                 return response.json()
             else:
@@ -162,7 +162,7 @@ class EnhancedAPIClient:
                 f"{self.base_url}/upload",
                 files=files,
                 headers=headers,
-                timeout=120  # 文件上傳可能需要更長時間
+                timeout=600  # 大文件處理需要更長時間 (10分鐘)
             )
             
             if response.status_code == 200:
@@ -193,7 +193,7 @@ class EnhancedAPIClient:
         try:
             response = self.session.get(
                 f"{self.base_url}/knowledge-base",
-                timeout=30  # 增加超時時間以處理大量文檔
+                timeout=120  # 增加超時時間以處理大量文檔
             )
             
             if response.status_code == 200:

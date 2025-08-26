@@ -35,7 +35,7 @@ WEB_SOURCES = [
 ]
 
 # 模型設定
-EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "jina").lower() # 'jina' or 'local'
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "local").lower()  # 'jina' or 'local'
 EMBEDDING_MODEL = "jina-embeddings-v3"
 LLM_MODEL = "llama-3.3-70b-versatile"  # Groq 模型
 

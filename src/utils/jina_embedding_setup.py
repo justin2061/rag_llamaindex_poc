@@ -74,9 +74,17 @@ def setup_fallback_embedding() -> bool:
         bool: 設置是否成功
     """
     try:
-        from src.utils.immediate_fix import setup_immediate_fix
+        # 優先嘗試本地 Sentence Transformers Jina 模型
+        from src.utils.sentence_transformer_embedding import setup_sentence_transformer_jina
         
-        logger.warning("⚠️ 使用後備embedding模型")
+        logger.info("🔄 嘗試使用本地 Sentence Transformers Jina 模型...")
+        if setup_sentence_transformer_jina("jinaai/jina-embeddings-v3"):
+            logger.info("✅ 本地 Jina 模型設置成功")
+            return True
+        
+        # 如果失敗，回退到簡單模型
+        logger.warning("⚠️ 本地 Jina 模型不可用，使用簡單後備模型")
+        from src.utils.immediate_fix import setup_immediate_fix
         setup_immediate_fix()
         return True
         

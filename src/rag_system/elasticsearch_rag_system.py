@@ -5,36 +5,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import traceback
 
-# 條件性導入 streamlit，如果不可用則使用 mock
-try:
-    import streamlit as st
-    HAS_STREAMLIT = True
-except ImportError:
-    # Mock streamlit functions when not available
-    class MockStreamlit:
-        def info(self, msg): print(f"INFO: {msg}")
-        def success(self, msg): print(f"SUCCESS: {msg}")
-        def warning(self, msg): print(f"WARNING: {msg}")
-        def error(self, msg): print(f"ERROR: {msg}")
-        def write(self, msg): print(f"WRITE: {msg}")
-        def spinner(self, msg): 
-            from contextlib import contextmanager
-            @contextmanager
-            def mock_spinner():
-                print(f"SPINNER: {msg}")
-                yield
-            return mock_spinner()
-        
-        @property
-        def session_state(self):
-            return MockSessionState()
-    
-    class MockSessionState:
-        def get(self, key, default=None):
-            return default
-    
-    st = MockStreamlit()
-    HAS_STREAMLIT = False
+# 使用統一的 streamlit 兼容層
+from src.utils.streamlit_mock import st, HAS_STREAMLIT
 
 # LlamaIndex 核心
 from llama_index.core import VectorStoreIndex, Document, Settings
@@ -1597,6 +1569,7 @@ class ElasticsearchRAGSystem(EnhancedRAGSystem):
                 
             except Exception as e:
                 st.error(f"❌ Elasticsearch 索引建立失敗: {str(e)}")
+                import traceback
                 print(f"❌ 詳細錯誤: {traceback.format_exc()}")
                 return None
     

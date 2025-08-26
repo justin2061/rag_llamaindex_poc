@@ -202,9 +202,15 @@ def get_streamlit():
         import streamlit as st
         return st, True
     except ImportError:
-        logger.info("Streamlit not available, using mock implementation")
+        logger.debug("Streamlit not available, using mock implementation")
         return mock_st, False
 
-# For backwards compatibility, export mock as st
-st = mock_st
-HAS_STREAMLIT = False
+# Global streamlit instance - auto-detect
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+    logger.debug("Using real streamlit")
+except ImportError:
+    st = mock_st
+    HAS_STREAMLIT = False
+    logger.debug("Using mock streamlit")

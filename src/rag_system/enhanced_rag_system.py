@@ -3,31 +3,8 @@ from typing import List, Optional, Dict, Any
 from llama_index.core import VectorStoreIndex, Document, Settings
 import traceback
 
-# 條件性導入 streamlit，如果不可用則使用 mock
-try:
-    import streamlit as st
-    HAS_STREAMLIT = True
-except ImportError:
-    class MockStreamlit:
-        def info(self, msg): print(f"INFO: {msg}")
-        def success(self, msg): print(f"SUCCESS: {msg}")
-        def warning(self, msg): print(f"WARNING: {msg}")
-        def error(self, msg): print(f"ERROR: {msg}")
-        def write(self, msg): print(f"WRITE: {msg}")
-        def spinner(self, msg): 
-            from contextlib import contextmanager
-            @contextmanager
-            def mock_spinner():
-                yield
-            return mock_spinner()
-        @property
-        def session_state(self):
-            return MockSessionState()
-    class MockSessionState:
-        def get(self, key, default=None):
-            return default
-    st = MockStreamlit()
-    HAS_STREAMLIT = False
+# 使用統一的 streamlit 兼容層
+from src.utils.streamlit_mock import st, HAS_STREAMLIT
 
 # Elasticsearch 支援
 try:
@@ -133,7 +110,9 @@ class EnhancedRAGSystem(RAGSystem):
         from llama_index.llms.groq import Groq
         from llama_index.core.node_parser import SimpleNodeParser
         from llama_index.core import Settings
-        import streamlit as st
+        
+        # 使用已經正確導入的 streamlit mock (from top of file)
+        # st is already imported from src.utils.streamlit_mock at the top
         
         # 防止 OpenAI 回退並設置安全的嵌入模型
         prevent_openai_fallback()

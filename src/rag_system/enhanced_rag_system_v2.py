@@ -7,7 +7,12 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import traceback
+import sys
+import time
 from llama_index.core import Document, VectorStoreIndex, Settings
+
+# 導入日誌配置
+from src.utils.logging_config import get_rag_logger, log_exception, log_performance
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.response_synthesizers import ResponseMode
 from llama_index.core.postprocessor import SimilarityPostprocessor
@@ -23,7 +28,9 @@ from src.rag_system.elasticsearch_rag_system import ElasticsearchRAGSystem
 
 # 配置logging
 logging.basicConfig(level=logging.INFO)
+# 設置日誌器
 logger = logging.getLogger(__name__)
+rag_logger = get_rag_logger()
 
 class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
     """
@@ -177,7 +184,10 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
         filename = getattr(uploaded_file, 'filename', getattr(uploaded_file, 'name', 'unknown'))
         file_size = getattr(uploaded_file, 'size', 0)
         
-        logger.info(f"🔄 V2.0文件處理開始: {filename}")
+        # 記錄處理開始
+        rag_logger.info(f"🔄 V2.0文件處理開始")
+        rag_logger.info(f"   - 文件名: {filename}")
+        rag_logger.info(f"   - 文件大小: {file_size} bytes")
         
         processing_stats = {
             "filename": filename,
@@ -188,12 +198,28 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
             "processing_stages": {}
         }
         
+        start_time = time.time()
+        
         try:
             # Stage 1: 基礎文件處理
+            rag_logger.info("📝 Stage 1: 開始基礎文件處理...")
             stage_start = datetime.now()
-            file_path = file_manager.save_uploaded_file(uploaded_file)
-            if not file_path:
-                raise ValueError("文件保存失敗")
+            stage_time_start = time.time()
+            
+            try:
+                file_path = file_manager.save_uploaded_file(uploaded_file)
+                if not file_path:
+                    raise ValueError("文件保存失敗")
+                    
+                stage_duration = time.time() - stage_time_start
+                rag_logger.info(f"✅ Stage 1完成，耗時: {stage_duration:.3f}秒")
+                rag_logger.info(f"   - 保存路徑: {file_path}")
+                
+            except Exception as stage1_error:
+                stage_duration = time.time() - stage_time_start
+                rag_logger.error(f"❌ Stage 1失敗，耗時: {stage_duration:.3f}秒")
+                log_exception(rag_logger, "Stage 1異常詳情", sys.exc_info())
+                raise stage1_error
             
             processing_stats["processing_stages"]["file_save"] = {
                 "duration": (datetime.now() - stage_start).total_seconds(),
@@ -201,8 +227,29 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
             }
             
             # Stage 2: 文檔載入和預處理
+            rag_logger.info("📖 Stage 2: 開始文檔載入和預處理...")
             stage_start = datetime.now()
-            documents = self._load_documents_from_file(file_path)
+            stage_time_start = time.time()
+            
+            try:
+                documents = self._load_documents_from_file(file_path)
+                stage_duration = time.time() - stage_time_start
+                rag_logger.info(f"✅ Stage 2完成，耗時: {stage_duration:.3f}秒")
+                rag_logger.info(f"   - 載入文檔數: {len(documents)}")
+                
+                for i, doc in enumerate(documents[:3]):  # 只記錄前3個文檔的資訊
+                    doc_info = f"文檔{i+1}: "
+                    if hasattr(doc, 'text'):
+                        doc_info += f"文本長度={len(doc.text)}, "
+                    if hasattr(doc, 'metadata'):
+                        doc_info += f"metadata={doc.metadata}"
+                    rag_logger.debug(f"   - {doc_info}")
+                    
+            except Exception as stage2_error:
+                stage_duration = time.time() - stage_time_start
+                rag_logger.error(f"❌ Stage 2失敗，耗時: {stage_duration:.3f}秒")
+                log_exception(rag_logger, "Stage 2異常詳情", sys.exc_info())
+                raise stage2_error
             
             processing_stats["processing_stages"]["document_load"] = {
                 "duration": (datetime.now() - stage_start).total_seconds(),
@@ -212,48 +259,87 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
             
             # Stage 3: 增強文檔處理
             if self.enable_hierarchical_chunking:
+                rag_logger.info("🔄 Stage 3: 開始階層文檔處理...")
                 stage_start = datetime.now()
+                stage_time_start = time.time()
                 enhanced_documents = []
                 
-                for doc in documents:
-                    processed_docs = self.enhanced_processor.process_document(doc)
-                    enhanced_documents.extend(processed_docs)
-                
-                documents = enhanced_documents
-                processing_stats["optimization_used"].append("hierarchical_chunking")
-                processing_stats["processing_stages"]["enhanced_processing"] = {
-                    "duration": (datetime.now() - stage_start).total_seconds(),
-                    "chunks_created": len(documents),
-                    "status": "success"
-                }
-                logger.info(f"📄 階層處理完成，產生 {len(documents)} 個chunks")
+                try:
+                    for i, doc in enumerate(documents):
+                        rag_logger.debug(f"   - 處理文檔 {i+1}/{len(documents)}")
+                        processed_docs = self.enhanced_processor.process_document(doc)
+                        enhanced_documents.extend(processed_docs)
+                    
+                    documents = enhanced_documents
+                    stage_duration = time.time() - stage_time_start
+                    processing_stats["optimization_used"].append("hierarchical_chunking")
+                    processing_stats["processing_stages"]["enhanced_processing"] = {
+                        "duration": (datetime.now() - stage_start).total_seconds(),
+                        "chunks_created": len(documents),
+                        "status": "success"
+                    }
+                    rag_logger.info(f"✅ Stage 3完成，耗時: {stage_duration:.3f}秒")
+                    rag_logger.info(f"   - 產生chunks: {len(documents)}")
+                    
+                except Exception as stage3_error:
+                    stage_duration = time.time() - stage_time_start
+                    rag_logger.error(f"❌ Stage 3失敗，耗時: {stage_duration:.3f}秒")
+                    log_exception(rag_logger, "Stage 3異常詳情", sys.exc_info())
+                    raise stage3_error
+            else:
+                rag_logger.info("⏭️ 跳過Stage 3: 階層處理已禁用")
             
-            # Stage 4: 階層式索引
+            # Stage 4: 索引創建
             if hasattr(self, 'hierarchical_indexer'):
+                rag_logger.info("🏗️ Stage 4: 開始階層式索引...")
                 stage_start = datetime.now()
-                indexing_stats = self.hierarchical_indexer.create_hierarchical_index(documents)
+                stage_time_start = time.time()
                 
-                processing_stats["optimization_used"].append("hierarchical_indexing")
-                processing_stats["processing_stages"]["hierarchical_indexing"] = {
-                    "duration": (datetime.now() - stage_start).total_seconds(),
-                    "indexed_chunks": indexing_stats["indexed_chunks"],
-                    "indexing_strategies": indexing_stats["indexing_strategies"],
-                    "status": "success"
-                }
-                processing_stats["chunks_created"] = indexing_stats["indexed_chunks"]
-                logger.info(f"🏗️ 階層索引完成，索引 {indexing_stats['indexed_chunks']} 個chunks")
+                try:
+                    indexing_stats = self.hierarchical_indexer.create_hierarchical_index(documents)
+                    stage_duration = time.time() - stage_time_start
+                    
+                    processing_stats["optimization_used"].append("hierarchical_indexing")
+                    processing_stats["processing_stages"]["hierarchical_indexing"] = {
+                        "duration": (datetime.now() - stage_start).total_seconds(),
+                        "indexed_chunks": indexing_stats["indexed_chunks"],
+                        "indexing_strategies": indexing_stats["indexing_strategies"],
+                        "status": "success"
+                    }
+                    processing_stats["chunks_created"] = indexing_stats["indexed_chunks"]
+                    rag_logger.info(f"✅ Stage 4完成，耗時: {stage_duration:.3f}秒")
+                    rag_logger.info(f"   - 索引chunks: {indexing_stats['indexed_chunks']}")
+                    
+                except Exception as stage4_error:
+                    stage_duration = time.time() - stage_time_start
+                    rag_logger.error(f"❌ Stage 4失敗，耗時: {stage_duration:.3f}秒")
+                    log_exception(rag_logger, "Stage 4異常詳情", sys.exc_info())
+                    raise stage4_error
             else:
                 # 備用：傳統索引方式
+                rag_logger.info("🔄 Stage 4: 開始傳統索引...")
                 stage_start = datetime.now()
-                index = self.create_index(documents)
-                if index:
-                    self.vector_store_index = index
+                stage_time_start = time.time()
                 
-                processing_stats["processing_stages"]["traditional_indexing"] = {
-                    "duration": (datetime.now() - stage_start).total_seconds(),
-                    "status": "success"
-                }
-                processing_stats["chunks_created"] = len(documents)
+                try:
+                    index = self.create_index(documents)
+                    if index:
+                        self.vector_store_index = index
+                    
+                    stage_duration = time.time() - stage_time_start
+                    processing_stats["processing_stages"]["traditional_indexing"] = {
+                        "duration": (datetime.now() - stage_start).total_seconds(),
+                        "status": "success"
+                    }
+                    processing_stats["chunks_created"] = len(documents)
+                    rag_logger.info(f"✅ Stage 4完成，耗時: {stage_duration:.3f}秒")
+                    rag_logger.info(f"   - 索引chunks: {len(documents)}")
+                    
+                except Exception as stage4_error:
+                    stage_duration = time.time() - stage_time_start
+                    rag_logger.error(f"❌ Stage 4失敗，耗時: {stage_duration:.3f}秒")
+                    log_exception(rag_logger, "Stage 4異常詳情", sys.exc_info())
+                    raise stage4_error
             
             # 更新系統狀態
             processing_stats["end_time"] = datetime.now()
@@ -263,20 +349,37 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
             processing_stats["status"] = "success"
             
             # 記錄處理統計
-            self._store_processing_stats(processing_stats)
+            try:
+                self._store_processing_stats(processing_stats)
+                rag_logger.debug("✅ 處理統計已保存")
+            except Exception as stats_error:
+                rag_logger.warning(f"⚠️ 保存處理統計失敗: {stats_error}")
             
-            logger.info(f"✅ V2.0文件處理完成: {filename}")
-            logger.info(f"   - 總耗時: {processing_stats['total_duration']:.2f}秒")
-            logger.info(f"   - 產生chunks: {processing_stats['chunks_created']}")
-            logger.info(f"   - 使用優化: {', '.join(processing_stats['optimization_used'])}")
+            total_duration = time.time() - start_time
+            rag_logger.info(f"🎉 V2.0文件處理完成:")
+            rag_logger.info(f"   - 文件: {filename}")
+            rag_logger.info(f"   - 總耗時: {total_duration:.3f}秒")
+            rag_logger.info(f"   - 產生chunks: {processing_stats['chunks_created']}")
+            rag_logger.info(f"   - 使用優化: {', '.join(processing_stats['optimization_used']) or '無'}")
+            
+            # 記錄性能指標
+            log_performance(rag_logger, f"V2.0文件處理[{filename}]", total_duration, 
+                           f"chunks={processing_stats['chunks_created']}, size={file_size}bytes")
             
             return processing_stats
             
         except Exception as e:
-            logger.error(f"❌ V2.0文件處理失敗: {e}")
+            total_duration = time.time() - start_time
+            rag_logger.error(f"💥 V2.0文件處理發生未預期錯誤:")
+            rag_logger.error(f"   - 文件: {filename}")
+            rag_logger.error(f"   - 總耗時: {total_duration:.3f}秒")
+            log_exception(rag_logger, "V2.0文件處理異常詳情", sys.exc_info())
+            
             processing_stats["status"] = "error"
             processing_stats["error"] = str(e)
             processing_stats["end_time"] = datetime.now()
+            processing_stats["total_duration"] = total_duration
+            
             return processing_stats
     
     def query_with_sources_v2(

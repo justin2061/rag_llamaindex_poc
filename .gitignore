@@ -15,3 +15,4 @@ data/chroma_db/
 elasticsearch_data/*\".claude/\" 
 \"elasticsearch_data/\" 
 elasticsearch_data/
+*.log

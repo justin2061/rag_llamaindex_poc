@@ -32,6 +32,24 @@ from urllib.parse import unquote
 # 添加項目根目錄到 Python 路徑
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 設置詳細日誌
+from src.utils.logging_config import setup_logging, get_api_logger, log_exception, log_performance
+import logging
+
+# 初始化日誌系統
+setup_logging(
+    app_name="enhanced_api",
+    log_level=os.getenv("LOG_LEVEL", "INFO"),
+    log_dir="/app/logs",
+    enable_console=True,
+    enable_file=True,
+    enable_json=True
+)
+
+# 獲取API專用日誌器
+api_logger = get_api_logger()
+api_logger.info("🚀 Enhanced RAG API 正在啟動...")
+
 from src.rag_system.enhanced_rag_system_v2 import EnhancedRAGSystemV2
 from src.processors.user_file_manager import UserFileManager
 from config.config import GROQ_API_KEY, GEMINI_API_KEY
@@ -788,13 +806,22 @@ async def upload_file(
     需要 **write** 權限的 JWT Token
     """
     
+    # 記錄上傳請求開始
+    api_logger.info(f"📤 文件上傳請求開始")
+    api_logger.info(f"   - 文件名: {file.filename}")
+    api_logger.info(f"   - 文件大小: {file.size} bytes")
+    api_logger.info(f"   - 內容類型: {file.content_type}")
+    api_logger.info(f"   - 用戶: {user_context.user_id}")
+    
     if "write" not in user_context.permissions:
+        api_logger.warning(f"❌ 權限不足: 用戶 {user_context.user_id} 沒有寫入權限")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Write permission required for file upload"
         )
     
     if not rag_system or not file_manager:
+        api_logger.error("❌ 系統未初始化: RAG系統或文件管理器不可用")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="File processing system not initialized"
@@ -802,45 +829,99 @@ async def upload_file(
     
     start_time = time.time()
     file_id = str(uuid.uuid4())
+    api_logger.info(f"🆔 分配文件ID: {file_id}")
     
     try:
         # 驗證文件
+        api_logger.info("🔍 開始驗證文件...")
+        validation_start = time.time()
         if not file_manager.validate_file(file):
+            api_logger.error(f"❌ 文件驗證失敗: {file.filename}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid file type or format"
             )
+        validation_time = time.time() - validation_start
+        api_logger.info(f"✅ 文件驗證通過，耗時: {validation_time:.3f}秒")
         
         # 保存臨時文件
+        api_logger.info("💾 開始保存臨時文件...")
+        save_start = time.time()
         temp_dir = tempfile.mkdtemp()
         temp_file_path = os.path.join(temp_dir, file.filename)
+        api_logger.info(f"   - 臨時目錄: {temp_dir}")
+        api_logger.info(f"   - 臨時文件路徑: {temp_file_path}")
         
         with open(temp_file_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
         
+        save_time = time.time() - save_start
+        api_logger.info(f"✅ 臨時文件保存完成，耗時: {save_time:.3f}秒")
+        
         # 使用V2.0處理文件
-        processing_stats = rag_system.process_uploaded_file_v2(file, file_manager)
+        api_logger.info("🔄 開始V2.0文件處理...")
+        process_start = time.time()
+        
+        try:
+            processing_stats = rag_system.process_uploaded_file_v2(file, file_manager)
+            process_time = time.time() - process_start
+            api_logger.info(f"✅ V2.0文件處理完成，耗時: {process_time:.3f}秒")
+            api_logger.info(f"   - 處理統計: {processing_stats}")
+            
+        except Exception as process_error:
+            process_time = time.time() - process_start
+            api_logger.error(f"❌ V2.0文件處理失敗，耗時: {process_time:.3f}秒")
+            log_exception(api_logger, f"V2.0處理異常詳情", sys.exc_info())
+            raise process_error
         
         chunks_created = processing_stats.get("chunks_created", 0)
         optimization_used = processing_stats.get("optimization_used", [])
         
+        api_logger.info(f"📊 處理結果:")
+        api_logger.info(f"   - 創建chunks: {chunks_created}")
+        api_logger.info(f"   - 使用優化: {optimization_used}")
+        
         # 清理臨時文件
-        os.unlink(temp_file_path)
-        os.rmdir(temp_dir)
+        api_logger.info("🧹 清理臨時文件...")
+        try:
+            os.unlink(temp_file_path)
+            os.rmdir(temp_dir)
+            api_logger.info("✅ 臨時文件清理完成")
+        except Exception as cleanup_error:
+            api_logger.warning(f"⚠️ 臨時文件清理失敗: {cleanup_error}")
         
         processing_time_ms = int((time.time() - start_time) * 1000)
+        final_status = "processed" if chunks_created > 0 else "failed"
+        
+        api_logger.info(f"🎉 文件上傳處理完成:")
+        api_logger.info(f"   - 文件ID: {file_id}")
+        api_logger.info(f"   - 狀態: {final_status}")
+        api_logger.info(f"   - 總耗時: {processing_time_ms}ms")
+        
+        # 記錄性能指標
+        log_performance(api_logger, f"文件上傳[{file.filename}]", processing_time_ms/1000, 
+                       f"chunks={chunks_created}, size={file.size}bytes")
         
         return FileUploadResponse(
             file_id=file_id,
             filename=file.filename,
             size_bytes=file.size,
-            status="processed" if chunks_created > 0 else "failed",
+            status=final_status,
             chunks_created=chunks_created,
             processing_time_ms=processing_time_ms
         )
         
+    except HTTPException:
+        # HTTP異常直接重新拋出，不需要額外處理
+        raise
     except Exception as e:
+        total_time = time.time() - start_time
+        api_logger.error(f"💥 文件上傳處理發生未預期錯誤，總耗時: {total_time:.3f}秒")
+        api_logger.error(f"   - 文件: {file.filename}")
+        api_logger.error(f"   - 文件ID: {file_id}")
+        log_exception(api_logger, f"文件上傳異常詳情", sys.exc_info())
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"File upload failed: {str(e)}"

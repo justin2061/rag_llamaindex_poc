@@ -36,7 +36,13 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
         
         logger.info("🚀 初始化 Enhanced RAG System V2.0")
         
-        # 先初始化基礎系統
+        # 首先設置正確的embedding模型
+        from src.utils.jina_embedding_setup import ensure_embedding_initialized
+        if not ensure_embedding_initialized():
+            logger.error("❌ Embedding模型初始化失敗")
+            raise RuntimeError("Embedding模型初始化失敗")
+        
+        # 然後初始化基礎系統
         super().__init__(elasticsearch_config)
         
         # 載入優化配置

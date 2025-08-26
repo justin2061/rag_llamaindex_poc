@@ -6,6 +6,7 @@ RAG 系統 Dashboard V2.0 - API串接版本
 import streamlit as st
 import os
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict, Any
@@ -17,6 +18,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.api_clients.enhanced_api_client import EnhancedAPIClient
 from config.config import PAGE_TITLE, PAGE_ICON
+
+# 配置logging
+logger = logging.getLogger(__name__)
 
 # 頁面配置
 st.set_page_config(
@@ -292,7 +296,7 @@ def render_dashboard():
         return
     
     # 獲取知識庫狀態
-    kb_status = st.session_state.api_client.get_knowledge_base_status()
+    kb_status = get_knowledge_base_status_with_feedback()
     
     if "error" not in kb_status:
         col1, col2, col3 = st.columns(3)
@@ -642,7 +646,7 @@ def render_knowledge_management():
     st.markdown("## 📋 現有文檔管理")
     
     # 獲取知識庫狀態
-    kb_status = st.session_state.api_client.get_knowledge_base_status()
+    kb_status = get_knowledge_base_status_with_feedback()
     
     if "error" in kb_status:
         st.error(f"❌ 無法獲取知識庫狀態: {kb_status['error']}")
@@ -723,20 +727,47 @@ def render_knowledge_management():
 def process_uploaded_files_v2(uploaded_files):
     """V2.0處理上傳文件"""
     try:
-        with st.spinner("正在處理文檔..."):
+        # 顯示處理概述
+        total_size_mb = sum(f.size for f in uploaded_files) / (1024 * 1024)
+        st.info(f"📋 準備處理 {len(uploaded_files)} 個文件 (總大小: {total_size_mb:.2f} MB)")
+        st.info("⏳ 文件處理可能需要較長時間，特別是大文件或PDF文件。請耐心等待...")
+        
+        # 創建處理狀態容器
+        status_container = st.container()
+        
+        with status_container:
+            st.markdown("### 📊 處理進度")
+            # API客戶端會在這個區域顯示詳細進度
             results = st.session_state.api_client.batch_upload_files(uploaded_files)
             
             successful = [r for r in results if r.get('status') != 'failed']
             failed = [r for r in results if r.get('status') == 'failed']
             
+            # 清除進度顯示區域
+            st.markdown("---")
+            
             if successful:
                 total_chunks = sum(r.get('chunks_created', 0) for r in successful)
+                processing_times = [r.get('processing_time_ms', 0) for r in successful if r.get('processing_time_ms')]
+                avg_time = sum(processing_times) / len(processing_times) if processing_times else 0
+                
                 st.success(f"✅ 成功處理 {len(successful)} 個文檔，創建了 {total_chunks} 個文本塊！")
                 
+                # 顯示處理統計
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("成功文件", len(successful))
+                with col2:
+                    st.metric("文本塊數", total_chunks)
+                with col3:
+                    st.metric("平均處理時間", f"{avg_time/1000:.1f}s" if avg_time > 0 else "N/A")
+                
                 # 顯示處理詳情
-                with st.expander("📊 處理詳情"):
+                with st.expander("📊 詳細處理結果"):
                     for result in successful:
-                        st.write(f"📄 {result['filename']}: {result.get('chunks_created', 0)} chunks")
+                        processing_time = result.get('processing_time_ms', 0)
+                        time_str = f" ({processing_time/1000:.1f}s)" if processing_time > 0 else ""
+                        st.write(f"📄 **{result['filename']}**: {result.get('chunks_created', 0)} chunks{time_str}")
                 
                 st.balloons()
             
@@ -744,12 +775,13 @@ def process_uploaded_files_v2(uploaded_files):
                 st.error(f"❌ {len(failed)} 個文檔處理失敗")
                 with st.expander("❌ 失敗詳情"):
                     for result in failed:
-                        st.write(f"📄 {result['filename']}: {result.get('error', 'Unknown error')}")
+                        st.write(f"📄 **{result['filename']}**: {result.get('error', 'Unknown error')}")
         
         st.rerun()
         
     except Exception as e:
         st.error(f"❌ 批量處理失敗: {str(e)}")
+        logger.error(f"批量處理異常: {e}")
 
 def execute_clear_knowledge_base():
     """執行清空知識庫操作"""
@@ -772,6 +804,15 @@ def execute_clear_knowledge_base():
     except Exception as e:
         st.error(f"❌ 清空知識庫時發生錯誤: {str(e)}")
         st.session_state["confirm_clear_kb"] = False
+
+def get_knowledge_base_status_with_feedback():
+    """獲取知識庫狀態並提供用戶反饋"""
+    try:
+        with st.spinner("正在獲取知識庫狀態...（可能需要幾秒鐘）"):
+            return st.session_state.api_client.get_knowledge_base_status()
+    except Exception as e:
+        logger.error(f"獲取知識庫狀態失敗: {e}")
+        return {"error": str(e)}
 
 def execute_file_deletion(file_info: Dict, delete_key: str):
     """執行文件刪除操作"""

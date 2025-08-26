@@ -135,9 +135,9 @@ class MultiEmbeddingManager:
         """獲取預設模型配置"""
         return {
             "general": EmbeddingModelConfig(
-                model_name="jinaai/jina-embeddings-v3-base-en",
+                model_name="jina-embeddings-v3",
                 model_type="general",
-                dimension=512,
+                dimension=1024,
                 strengths=["通用文本", "多語言", "平衡性能"],
                 use_cases=["日常查詢", "通用檢索", "基礎相似度"],
                 weight=1.0

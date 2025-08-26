@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Optional, Union
 from datetime import datetime, timedelta
 import tempfile
 import os
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -192,7 +193,7 @@ class EnhancedAPIClient:
         try:
             response = self.session.get(
                 f"{self.base_url}/knowledge-base",
-                timeout=10
+                timeout=30  # 增加超時時間以處理大量文檔
             )
             
             if response.status_code == 200:
@@ -295,27 +296,59 @@ class EnhancedAPIClient:
         total_files = len(uploaded_files)
         progress_bar = st.progress(0)
         status_text = st.empty()
+        detail_text = st.empty()
         
         for i, uploaded_file in enumerate(uploaded_files):
             try:
-                status_text.text(f"正在處理文件 {i+1}/{total_files}: {uploaded_file.name}")
+                # 更詳細的狀態顯示
+                file_size_mb = uploaded_file.size / (1024 * 1024)
+                status_text.text(f"📤 正在上傳文件 {i+1}/{total_files}: {uploaded_file.name}")
+                detail_text.text(f"📊 文件大小: {file_size_mb:.2f} MB | 狀態: 上傳中...")
+                
+                # 記錄開始時間
+                start_time = datetime.now()
                 
                 result = self.upload_file(uploaded_file)
+                
+                # 計算處理時間
+                processing_time = (datetime.now() - start_time).total_seconds()
+                
+                # 顯示處理結果詳情
+                if result.get('status') != 'failed':
+                    chunks_created = result.get('chunks_created', 0)
+                    detail_text.text(f"✅ 處理完成 | 創建 {chunks_created} 個文本塊 | 耗時 {processing_time:.1f}s")
+                else:
+                    detail_text.text(f"❌ 處理失敗: {result.get('error', 'Unknown error')}")
+                
                 results.append(result)
                 
                 progress = (i + 1) / total_files
                 progress_bar.progress(progress)
                 
+                # 短暫暫停讓用戶看到結果
+                time.sleep(0.5)
+                
             except Exception as e:
                 logger.error(f"❌ 批量上傳文件失敗 {uploaded_file.name}: {e}")
+                detail_text.text(f"❌ 上傳失敗: {str(e)}")
                 results.append({
                     "filename": uploaded_file.name,
                     "status": "failed",
                     "error": str(e)
                 })
+                time.sleep(0.5)
         
+        # 顯示最終統計
+        successful = len([r for r in results if r.get('status') != 'failed'])
+        failed = len(results) - successful
+        status_text.text(f"🎉 批量處理完成: {successful} 成功, {failed} 失敗")
+        detail_text.text("準備顯示詳細結果...")
+        
+        # 延遲清除狀態
+        time.sleep(2)
         progress_bar.empty()
         status_text.empty()
+        detail_text.empty()
         
         return results
     

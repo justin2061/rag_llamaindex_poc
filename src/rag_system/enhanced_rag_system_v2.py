@@ -76,6 +76,11 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
                 from llama_index.core import VectorStoreIndex
                 self.vector_store_index = VectorStoreIndex.from_vector_store(self.vector_store)
                 logger.info("✅ Vector store index 從 vector_store 初始化完成")
+            elif hasattr(self, 'elasticsearch_store') and self.elasticsearch_store and not self.vector_store_index:
+                # 使用 elasticsearch_store 來初始化索引
+                from llama_index.core import VectorStoreIndex
+                self.vector_store_index = VectorStoreIndex.from_vector_store(self.elasticsearch_store)
+                logger.info("✅ Vector store index 從 elasticsearch_store 初始化完成")
         except Exception as e:
             logger.warning(f"⚠️ Vector store index 初始化失敗: {e}")
         

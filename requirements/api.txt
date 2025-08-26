@@ -1,0 +1,16 @@
+# API 服務專用依賴
+-r base.txt
+
+# FastAPI 核心
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# API 功能
+python-multipart>=0.0.6
+PyJWT>=2.8.0
+cryptography>=41.0.0
+pydantic>=2.0.0
+jinja2>=3.1.0
+aiofiles>=23.2.0
+
+# streamlit 依賴已通過條件性導入和mock實現解決

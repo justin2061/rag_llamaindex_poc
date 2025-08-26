@@ -6,8 +6,25 @@
 
 import os
 from typing import List
-import streamlit as st
 from llama_index.core.embeddings import BaseEmbedding
+
+# 條件性導入 streamlit，API環境下使用 mock 實現
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    HAS_STREAMLIT = False
+    # Mock streamlit 接口
+    class MockStreamlit:
+        @staticmethod
+        def error(message): print(f"ERROR: {message}")
+        @staticmethod
+        def success(message): print(f"SUCCESS: {message}")
+        @staticmethod
+        def warning(message): print(f"WARNING: {message}")
+        @staticmethod
+        def info(message): print(f"INFO: {message}")
+    st = MockStreamlit()
 from llama_index.core import Settings
 import requests
 from config.config import ELASTICSEARCH_VECTOR_DIMENSION

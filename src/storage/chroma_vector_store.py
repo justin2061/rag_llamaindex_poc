@@ -1,7 +1,26 @@
 import os
 import shutil
 from typing import Optional, List, Dict, Any
-import streamlit as st
+
+# 條件性導入 streamlit，API環境下使用 mock 實現
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    HAS_STREAMLIT = False
+    # Mock streamlit 接口以支持 API 環境
+    class MockStreamlit:
+        @staticmethod
+        def info(message): print(f"INFO: {message}")
+        @staticmethod
+        def success(message): print(f"SUCCESS: {message}")
+        @staticmethod
+        def warning(message): print(f"WARNING: {message}")
+        @staticmethod
+        def error(message): print(f"ERROR: {message}")
+    
+    st = MockStreamlit()
+
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from llama_index.core import VectorStoreIndex, StorageContext

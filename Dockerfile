@@ -28,9 +28,10 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --upgrade pip setuptools wheel
 
 # 複製 requirements 檔案並安裝 Python 依賴
-COPY requirements_light.txt .
+COPY requirements/ requirements/
+COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements_light.txt
+    pip install --no-cache-dir -r requirements.txt
 
 # 創建資料目錄和工作目錄結構
 RUN mkdir -p data/pdfs data/index data/user_uploads data/chroma_db

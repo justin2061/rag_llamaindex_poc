@@ -7,8 +7,15 @@ import os
 import uuid
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-import streamlit as st
 import traceback
+
+# 條件性導入 streamlit，如果不可用則使用 mock
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    from src.utils.streamlit_mock import mock_st as st
+    HAS_STREAMLIT = False
 
 try:
     from elasticsearch import Elasticsearch

@@ -1,7 +1,19 @@
 import os
 from typing import List, Optional
-import streamlit as st
 from llama_index.core import VectorStoreIndex, Document, Settings, load_index_from_storage
+
+# 條件性導入 streamlit，如果不可用則使用 mock
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    class MockStreamlit:
+        def info(self, msg): print(f"INFO: {msg}")
+        def success(self, msg): print(f"SUCCESS: {msg}")
+        def warning(self, msg): print(f"WARNING: {msg}")
+        def error(self, msg): print(f"ERROR: {msg}")
+    st = MockStreamlit()
+    HAS_STREAMLIT = False
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.llms.groq import Groq
 import requests

@@ -15,8 +15,13 @@
       "Bash(grep:*)",
       "Bash(./scripts/regression_test.sh:*)",
       "Bash(docker stop:*)",
-      "Bash(docker rm:*)"
+      "Bash(docker rm:*)",
+      "Bash(docker start:*)",
+      "Bash(docker:*)"
     ],
-    "deny": []
+    "deny": [],
+    "additionalDirectories": [
+      "/tmp"
+    ]
   }
 }

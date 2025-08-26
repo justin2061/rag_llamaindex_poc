@@ -1,7 +1,21 @@
 import os
 import base64
 from typing import Optional, Dict, Any
-import streamlit as st
+
+# 條件性導入 streamlit，API環境下使用 mock 實現
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    HAS_STREAMLIT = False
+    # Mock streamlit 接口
+    class MockStreamlit:
+        @staticmethod
+        def warning(message): print(f"WARNING: {message}")
+        @staticmethod
+        def error(message): print(f"ERROR: {message}")
+    st = MockStreamlit()
+
 try:
     import google.generativeai as genai
     GEMINI_AVAILABLE = True

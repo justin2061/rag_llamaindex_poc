@@ -2,7 +2,6 @@ import os
 import shutil
 from datetime import datetime
 from typing import List, Dict, Optional
-import streamlit as st
 from config.config import USER_UPLOADS_DIR, MAX_FILE_SIZE_MB, MAX_IMAGE_SIZE_MB, SUPPORTED_FILE_TYPES
 
 class UserFileManager:

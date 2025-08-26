@@ -1,0 +1,12 @@
+# Dashboard UI 專用依賴
+-r base.txt
+
+# Streamlit 核心
+streamlit>=1.32.0
+
+# UI 增強
+streamlit-option-menu>=0.3.6
+
+# FastAPI 整合 (用於 API 客戶端)
+fastapi>=0.104.0
+python-multipart>=0.0.6

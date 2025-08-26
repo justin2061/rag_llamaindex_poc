@@ -1,44 +1,6 @@
-streamlit>=1.32.0
-llama-index>=0.10.25
-llama-index-llms-groq>=0.1.3
-# 嵌入模型選項（選擇其中一個）
-# Option 1: HuggingFace 本地嵌入（可能需要較多資源）
-# llama-index-embeddings-huggingface>=0.2.0
-# sentence-transformers>=2.2.0
+# 主要依賴 - Dashboard 模式 (默認)
+# 如需其他模式，使用：
+# - API 模式: pip install -r requirements/api.txt
+# - 開發模式: pip install -r requirements/dev.txt
 
-# Option 2: Jina API 嵌入（推薦，輕量級）
-# 如果使用 Jina API，需要在 .env 中設置 JINA_API_KEY
-llama-index-readers-file>=0.1.4
-requests>=2.31.0
-beautifulsoup4>=4.12.2
-PyMuPDF>=1.23.3     # Docker 環境可以處理編譯
-plotly>=5.15.0
-
-# Google Generative AI (Gemini OCR 功能)
-google-generativeai>=0.3.0
-
-# DOCX 處理
-python-docx>=0.8.11
-
-# UI 增強
-streamlit-option-menu>=0.3.6
-
-# Graph RAG 相關功能已禁用
-# networkx>=3.0
-# pyvis>=0.3.2
-# python-louvain>=0.16
-
-# Elasticsearch RAG 相關 (可選)
-elasticsearch>=8.0.0
-llama-index-vector-stores-elasticsearch>=0.2.0
-
-# FastAPI 接口
-fastapi>=0.104.0
-uvicorn>=0.24.0
-python-multipart>=0.0.6
-PyJWT>=2.8.0
-cryptography>=41.0.0
-
-# 效能監控和基準測試
-psutil>=5.9.0
-# matplotlib>=3.7.0  # 圖表庫，可能觸發 numpy/scipy 依賴，Docker 中暫不需要
+-r requirements/dashboard.txt

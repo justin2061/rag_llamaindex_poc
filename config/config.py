@@ -102,12 +102,12 @@ VECTOR_STORE_PRIORITY = os.getenv("VECTOR_STORE_PRIORITY", "elasticsearch,simple
 # Phase 1 優化設定 - 智能切割與結構識別
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1024))  # 基礎切割大小
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 200))  # 重疊字符數
-ENABLE_HIERARCHICAL_CHUNKING = os.getenv("ENABLE_HIERARCHICAL_CHUNKING", "true").lower() == "true"
-ENABLE_DOCUMENT_STRUCTURE_DETECTION = os.getenv("ENABLE_DOCUMENT_STRUCTURE_DETECTION", "true").lower() == "true"
+ENABLE_HIERARCHICAL_CHUNKING = os.getenv("ENABLE_HIERARCHICAL_CHUNKING", "false").lower() == "true"
+ENABLE_DOCUMENT_STRUCTURE_DETECTION = os.getenv("ENABLE_DOCUMENT_STRUCTURE_DETECTION", "false").lower() == "true"
 
 # Phase 2 優化設定 - 混合檢索
-ENABLE_HYBRID_SEARCH = os.getenv("ENABLE_HYBRID_SEARCH", "true").lower() == "true"
-ENABLE_QUERY_REWRITING = os.getenv("ENABLE_QUERY_REWRITING", "true").lower() == "true"
+ENABLE_HYBRID_SEARCH = os.getenv("ENABLE_HYBRID_SEARCH", "false").lower() == "true"
+ENABLE_QUERY_REWRITING = os.getenv("ENABLE_QUERY_REWRITING", "false").lower() == "true"
 HYBRID_SEARCH_WEIGHTS = {
     "vector": float(os.getenv("VECTOR_SEARCH_WEIGHT", 0.6)),
     "keyword": float(os.getenv("KEYWORD_SEARCH_WEIGHT", 0.3)),
@@ -115,8 +115,8 @@ HYBRID_SEARCH_WEIGHTS = {
 }
 
 # Phase 3 優化設定 - 多模型策略
-ENABLE_MULTI_EMBEDDING = os.getenv("ENABLE_MULTI_EMBEDDING", "true").lower() == "true"
-ENABLE_CONTEXTUAL_RERANKING = os.getenv("ENABLE_CONTEXTUAL_RERANKING", "true").lower() == "true"
+ENABLE_MULTI_EMBEDDING = os.getenv("ENABLE_MULTI_EMBEDDING", "false").lower() == "true"
+ENABLE_CONTEXTUAL_RERANKING = os.getenv("ENABLE_CONTEXTUAL_RERANKING", "false").lower() == "true"
 RERANKING_MODEL = os.getenv("RERANKING_MODEL", "bge-reranker-base")
 
 # 多粒度切割配置

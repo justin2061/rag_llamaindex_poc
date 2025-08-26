@@ -2,8 +2,27 @@ import os
 import asyncio
 import nest_asyncio
 from typing import List, Optional, Dict, Any, Callable, Union
-import streamlit as st
 import networkx as nx
+
+# 條件性導入 streamlit，如果不可用則使用 mock
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    class MockStreamlit:
+        def info(self, msg): print(f"INFO: {msg}")
+        def success(self, msg): print(f"SUCCESS: {msg}")
+        def warning(self, msg): print(f"WARNING: {msg}")
+        def error(self, msg): print(f"ERROR: {msg}")
+        def write(self, msg): print(f"WRITE: {msg}")
+        def spinner(self, msg): 
+            from contextlib import contextmanager
+            @contextmanager
+            def mock_spinner():
+                yield
+            return mock_spinner()
+    st = MockStreamlit()
+    HAS_STREAMLIT = False
 from pyvis.network import Network
 import tempfile
 

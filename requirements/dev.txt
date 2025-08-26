@@ -1,0 +1,18 @@
+# 開發和測試用依賴
+-r api.txt
+-r dashboard.txt
+
+# 開發工具
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
+
+# 測試工具
+httpx>=0.24.0  # 用於測試 FastAPI
+requests-mock>=1.10.0
+
+# 文檔生成
+mkdocs>=1.5.0
+mkdocs-material>=9.0.0

@@ -1,9 +1,31 @@
 import os
 import requests
 from typing import List, Dict
-import streamlit as st
 from utils import extract_pdf_links_from_page, get_file_size
 from config.config import PDF_DIR
+
+# 條件性導入 streamlit，API環境下使用 mock 實現
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    HAS_STREAMLIT = False
+    # Mock streamlit 接口
+    class MockStreamlit:
+        @staticmethod
+        def error(message): print(f"ERROR: {message}")
+        @staticmethod
+        def info(message): print(f"INFO: {message}")
+        @staticmethod
+        def spinner(message):
+            from contextlib import contextmanager
+            @contextmanager
+            def mock_spinner():
+                print(f"SPINNER: {message}")
+                yield
+            return mock_spinner()
+    
+    st = MockStreamlit()
 
 class EnhancedPDFDownloader:
     def __init__(self):

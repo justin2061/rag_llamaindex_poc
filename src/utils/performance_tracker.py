@@ -10,7 +10,34 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 from contextlib import contextmanager
-import streamlit as st
+# 條件性導入 streamlit，API環境下使用 mock 實現
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    HAS_STREAMLIT = False
+    # Mock streamlit 接口以支持 API 環境
+    class MockStreamlit:
+        @staticmethod
+        def info(message): pass
+        @staticmethod  
+        def markdown(message): pass
+        @staticmethod
+        def columns(count): return [MockColumn()] * count
+        @staticmethod
+        def metric(label, value): pass
+        @staticmethod
+        def text(message): pass
+        @staticmethod
+        def caption(message): pass
+    
+    class MockColumn:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def metric(self, label, value): pass
+        def text(self, message): pass
+    
+    st = MockStreamlit()
 
 
 @dataclass
@@ -188,6 +215,10 @@ class PerformanceTracker:
     
     def display_performance_summary(self):
         """在Streamlit中顯示性能摘要"""
+        # 在非streamlit環境下跳過UI顯示
+        if not HAS_STREAMLIT:
+            return
+            
         summary = self.get_session_summary()
         
         if summary["total_stages"] == 0:

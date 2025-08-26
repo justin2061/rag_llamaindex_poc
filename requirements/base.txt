@@ -1,0 +1,30 @@
+# 基礎 RAG 系統依賴
+# LlamaIndex 核心
+llama-index>=0.10.25
+llama-index-readers-file>=0.1.4
+
+# LLM 提供商
+llama-index-llms-groq>=0.1.3
+
+# 嵌入模型 - Jina API (輕量級，推薦)
+llama-index-embeddings-jinaai>=0.5.0
+
+# 向量資料庫 - Elasticsearch
+elasticsearch>=8.0.0
+llama-index-vector-stores-elasticsearch>=0.2.0
+
+# 文檔處理
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+PyMuPDF>=1.23.3
+python-docx>=0.8.11
+
+# Google Generative AI (Gemini OCR 功能)
+google-generativeai>=0.3.0
+
+# 系統工具
+python-dotenv>=1.0.0
+psutil>=5.9.0
+
+# 可視化
+plotly>=5.15.0

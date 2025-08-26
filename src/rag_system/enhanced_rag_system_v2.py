@@ -45,6 +45,9 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
         # 然後初始化基礎系統
         super().__init__(elasticsearch_config)
         
+        # 初始化索引屬性
+        self.vector_store_index = None
+        
         # 載入優化配置
         from config.config import (
             ENABLE_HIERARCHICAL_CHUNKING,
@@ -63,31 +66,53 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
         # 初始化新組件
         self._initialize_v2_components()
         
+        # 確保有基本的索引設置
+        try:
+            # 嘗試從父類獲取已初始化的索引
+            if hasattr(self, 'index') and self.index:
+                self.vector_store_index = self.index
+                logger.info("✅ 使用父類已初始化的索引")
+            elif hasattr(self, 'vector_store') and self.vector_store and not self.vector_store_index:
+                from llama_index.core import VectorStoreIndex
+                self.vector_store_index = VectorStoreIndex.from_vector_store(self.vector_store)
+                logger.info("✅ Vector store index 從 vector_store 初始化完成")
+        except Exception as e:
+            logger.warning(f"⚠️ Vector store index 初始化失敗: {e}")
+        
         logger.info("✅ Enhanced RAG System V2.0 初始化完成")
         self._log_optimization_status()
     
     def _initialize_v2_components(self):
-        """初始化V2.0新組件"""
+        """初始化V2.0新組件 - 簡化版本，只保留必要組件"""
         
         try:
-            # 1. 增強文檔處理器
-            self.enhanced_processor = EnhancedDocumentProcessor()
-            logger.info("📄 Enhanced Document Processor 已載入")
+            logger.info("🔧 使用簡化模式初始化 - 只保留 Jina embedding")
             
-            # 2. 多Embedding管理器
-            self.multi_embedding_manager = MultiEmbeddingManager(
-                enable_multi_embedding=self.enable_multi_embedding
-            )
-            logger.info("🎯 Multi-Embedding Manager 已載入")
+            # 只有在啟用功能時才初始化對應組件
+            if self.enable_hierarchical_chunking:
+                # 1. 增強文檔處理器
+                self.enhanced_processor = EnhancedDocumentProcessor()
+                logger.info("📄 Enhanced Document Processor 已載入")
+                
+                # 3. 階層式索引器
+                if self.elasticsearch_client:
+                    self.hierarchical_indexer = HierarchicalIndexer(
+                        elasticsearch_client=self.elasticsearch_client,
+                        index_name=self.index_name,
+                        processor=self.enhanced_processor
+                    )
+                    logger.info("🏗️ Hierarchical Indexer 已載入")
+            else:
+                logger.info("⏭️ 跳過階層切割組件")
             
-            # 3. 階層式索引器
-            if self.elasticsearch_client:
-                self.hierarchical_indexer = HierarchicalIndexer(
-                    elasticsearch_client=self.elasticsearch_client,
-                    index_name=self.index_name,
-                    processor=self.enhanced_processor
+            if self.enable_multi_embedding:
+                # 2. 多Embedding管理器
+                self.multi_embedding_manager = MultiEmbeddingManager(
+                    enable_multi_embedding=self.enable_multi_embedding
                 )
-                logger.info("🏗️ Hierarchical Indexer 已載入")
+                logger.info("🎯 Multi-Embedding Manager 已載入")
+            else:
+                logger.info("⏭️ 跳過多Embedding管理器")
             
             # 4. 混合檢索器
             if self.enable_hybrid_search and self.elasticsearch_client:
@@ -98,23 +123,36 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
                     semantic_weight=HYBRID_SEARCH_WEIGHTS.get("semantic", 0.1)
                 )
                 
+                # 使用基本的embedding模型而不是多embedding管理器
+                embedding_model = getattr(self, 'multi_embedding_manager', None)
+                if embedding_model:
+                    embedding_model = embedding_model.models.get("general")
+                
                 self.hybrid_retriever = HybridRetriever(
                     elasticsearch_client=self.elasticsearch_client,
                     index_name=self.index_name,
                     config=hybrid_config,
-                    embedding_model=self.multi_embedding_manager.models.get("general")
+                    embedding_model=embedding_model
                 )
                 logger.info("🔍 Hybrid Retriever 已載入")
+            else:
+                logger.info("⏭️ 跳過混合檢索器")
             
             # 5. 上下文重排序器
-            self.contextual_reranker = ContextualReranker(
-                enable_contextual_reranking=self.enable_contextual_reranking
-            )
-            logger.info("🎯 Contextual Reranker 已載入")
+            if self.enable_contextual_reranking:
+                self.contextual_reranker = ContextualReranker(
+                    enable_contextual_reranking=self.enable_contextual_reranking
+                )
+                logger.info("🎯 Contextual Reranker 已載入")
+            else:
+                logger.info("⏭️ 跳過上下文重排序器")
+            
+            logger.info("✅ 簡化模式初始化完成")
             
         except Exception as e:
             logger.error(f"❌ V2.0組件初始化失敗: {e}")
-            traceback.print_exc()
+            logger.info("🔄 嘗試fallback到基礎模式")
+            # 不拋出異常，允許系統以基礎模式運行
     
     def _log_optimization_status(self):
         """記錄優化狀態"""
@@ -720,3 +758,157 @@ class EnhancedRAGSystemV2(ElasticsearchRAGSystem):
                 }
             )
             return [error_doc]
+    
+    def get_indexed_files(self) -> List[Dict[str, Any]]:
+        """
+        獲取已索引文件的列表和狀態信息
+        Returns:
+            List[Dict]: 包含文件信息的字典列表
+        """
+        try:
+            if not self.vector_store_index:
+                logger.warning("⚠️ 向量存儲未初始化")
+                return []
+            
+            # 嘗試從 Elasticsearch 獲取文件信息
+            vector_store = getattr(self.vector_store_index, 'vector_store', None)
+            if vector_store and hasattr(vector_store, '_client') and hasattr(vector_store, '_index_name'):
+                try:
+                    # 使用聚合查詢獲取唯一文件信息
+                    query = {
+                        "size": 0,
+                        "aggs": {
+                            "unique_files": {
+                                "terms": {
+                                    "field": "metadata.file_name",
+                                    "size": 1000
+                                },
+                                "aggs": {
+                                    "file_info": {
+                                        "top_hits": {
+                                            "size": 1,
+                                            "_source": ["metadata"],
+                                            "sort": [{"_timestamp": {"order": "desc"}}]
+                                        }
+                                    },
+                                    "chunk_count": {
+                                        "value_count": {
+                                            "field": "_id"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    response = vector_store._client.search(
+                        index=vector_store._index_name,
+                        body=query
+                    )
+                    
+                    files = []
+                    for bucket in response['aggregations']['unique_files']['buckets']:
+                        file_name = bucket['key']
+                        chunk_count = bucket['chunk_count']['value']
+                        
+                        # 獲取文件元數據
+                        hits = bucket['file_info']['hits']['hits']
+                        if hits:
+                            metadata = hits[0]['_source']['metadata']
+                            
+                            # 計算文件大小（估算）
+                            file_size_mb = metadata.get('content_length', 0) / (1024 * 1024) if metadata.get('content_length') else 0.0
+                            
+                            files.append({
+                                'id': metadata.get('file_path', file_name),
+                                'name': file_name,
+                                'size_mb': round(file_size_mb, 2),
+                                'type': metadata.get('file_type', 'unknown'),
+                                'upload_time': metadata.get('upload_time', ''),
+                                'node_count': chunk_count,
+                                'status': 'active',
+                                'source': metadata.get('source', ''),
+                                'processing_method': metadata.get('processing_method', 'standard')
+                            })
+                    
+                    logger.info(f"📂 獲取到 {len(files)} 個已索引文件")
+                    return files
+                    
+                except Exception as es_error:
+                    logger.warning(f"⚠️ Elasticsearch查詢失敗: {es_error}")
+                    # 降級到基本實現
+                    pass
+            
+            # 基本實現：嘗試從索引中獲取基本信息
+            try:
+                # 使用VectorStoreIndex的查詢功能
+                if self.vector_store_index:
+                    # 通過查詢獲取文檔
+                    retriever = self.vector_store_index.as_retriever(similarity_top_k=100)
+                    docs = retriever.retrieve("test query for listing files")
+                    
+                    # 按文件名分組
+                    files_dict = {}
+                    for doc in docs:
+                        if hasattr(doc, 'metadata'):
+                            metadata = doc.metadata
+                            file_name = metadata.get('file_name', 'unknown')
+                            if file_name not in files_dict:
+                                files_dict[file_name] = {
+                                    'id': metadata.get('file_path', file_name),
+                                    'name': file_name,
+                                    'size_mb': 0.0,
+                                    'type': metadata.get('file_type', 'unknown'),
+                                    'upload_time': metadata.get('upload_time', ''),
+                                    'node_count': 0,
+                                    'status': 'active'
+                                }
+                            
+                            # 累計統計
+                            files_dict[file_name]['node_count'] += 1
+                            # 嘗試從文本長度估算大小
+                            if hasattr(doc, 'text'):
+                                text_size_mb = len(doc.text.encode('utf-8')) / (1024 * 1024)
+                                files_dict[file_name]['size_mb'] += text_size_mb
+                    
+                    # 轉換為列表
+                    files = list(files_dict.values())
+                    for file_info in files:
+                        file_info['size_mb'] = round(file_info['size_mb'], 2)
+                    
+                    return files
+            
+            except Exception as fallback_error:
+                logger.warning(f"⚠️ 基本查詢也失敗: {fallback_error}")
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"❌ 獲取已索引文件列表失敗: {e}")
+            return []
+    
+    def get_document_statistics(self) -> Dict[str, Any]:
+        """
+        獲取文檔統計信息
+        Returns:
+            Dict: 包含統計信息的字典
+        """
+        try:
+            files = self.get_indexed_files()
+            total_files = len(files)
+            total_chunks = sum(file_info.get('node_count', 0) for file_info in files)
+            total_size_mb = sum(file_info.get('size_mb', 0.0) for file_info in files)
+            
+            return {
+                'total_files': total_files,
+                'total_documents': total_chunks,
+                'total_size_mb': round(total_size_mb, 2)
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ 獲取文檔統計信息失敗: {e}")
+            return {
+                'total_files': 0,
+                'total_documents': 0,
+                'total_size_mb': 0.0
+            }

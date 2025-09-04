@@ -171,16 +171,15 @@ class SafeJinaEmbedding(BaseEmbedding):
         return self._get_text_embedding(text)
 
 def setup_safe_embedding(jina_api_key: str = None):
-    """設置安全的嵌入模型 - 僅使用 Jina API 或本地後備"""
+    """設置安全的嵌入模型 - 完全本地化，不使用任何API"""
     
-    # 使用 Jina API（若未提供則從環境變數讀取）
-    if not jina_api_key:
-        jina_api_key = os.getenv("JINA_API_KEY")
+    # 強制使用本地後備模型，忽略API金鑰
+    print("🔄 使用本地後備嵌入模型（已停用API調用）")
     
     embedding_model = SafeJinaEmbedding(
-        api_key=jina_api_key,
+        api_key=None,  # 強制使用本地模型
         model="jina-embeddings-v3",
-        task="text-matching",
+        task="text-matching", 
         dimensions=ELASTICSEARCH_VECTOR_DIMENSION # 匹配 Elasticsearch 索引維度
     )
     
@@ -193,11 +192,11 @@ def setup_safe_embedding(jina_api_key: str = None):
         show_tech = (DEBUG_MODE or SHOW_TECHNICAL_MESSAGES or 
                     st.session_state.get('show_tech_messages', False))
         if show_tech:
-            st.success("✅ 使用 Jina 嵌入模型（帶本地後備）")
+            st.success("✅ 使用本地嵌入模型（已停用API調用）")
         else:
-            print("[TECH] ✅ 使用 Jina 嵌入模型（帶本地後備）")
+            print("[TECH] ✅ 使用本地嵌入模型（已停用API調用）")
     except Exception:
-        print("[TECH] ✅ 使用 Jina 嵌入模型（帶本地後備）")
+        print("[TECH] ✅ 使用本地嵌入模型（已停用API調用）")
     return embedding_model
 
 def prevent_openai_fallback():

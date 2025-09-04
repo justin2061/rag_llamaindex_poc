@@ -670,18 +670,18 @@ def render_knowledge_management():
         col1, col2 = st.columns(2)
         with col1:
             # 檢查是否處於清空確認模式
-            if st.session_state.get("confirm_clear_kb", False):
+            if st.session_state.get("show_confirm_clear", False):
                 sub_col1, sub_col2 = st.columns(2)
                 with sub_col1:
                     if st.button("取消", key="cancel_clear_kb", use_container_width=True):
-                        st.session_state["confirm_clear_kb"] = False
+                        st.session_state["show_confirm_clear"] = False
                         st.rerun()
                 with sub_col2:
-                    if st.button("確認清空", key="confirm_clear_kb", type="primary", use_container_width=True):
+                    if st.button("確認清空", key="confirm_clear_kb_btn", type="primary", use_container_width=True):
                         execute_clear_knowledge_base()
             else:
                 if st.button("🗑️ 清空知識庫", use_container_width=True):
-                    st.session_state["confirm_clear_kb"] = True
+                    st.session_state["show_confirm_clear"] = True
                     st.rerun()
                     
         with col2:
@@ -793,7 +793,7 @@ def execute_clear_knowledge_base():
             st.success("✅ 知識庫已成功清空")
             st.balloons()  # 添加慶祝動畫
             # 清除確認狀態
-            st.session_state["confirm_clear_kb"] = False
+            st.session_state["show_confirm_clear"] = False
             # 延遲後重新載入頁面
             time.sleep(2)
             st.rerun()
